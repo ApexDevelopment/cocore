@@ -3,7 +3,7 @@
 //   curl -fsSL https://console.cocore.dev/agent | sh
 //
 // The script (sibling file `agent-install.sh`) downloads the latest
-// macOS arm64 release from https://github.com/DGaffney/cocore/releases,
+// macOS arm64 release from https://github.com/graze-social/cocore/releases,
 // installs the binary to `~/.local/bin/cocore`, sets up the
 // LaunchAgent (suspended until pairing), and prints the next step:
 // `cocore agent pair`.

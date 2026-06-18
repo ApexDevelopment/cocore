@@ -241,6 +241,6 @@ implements it was built the same way.
 
 This is alpha-stage hobby/research software. Bug reports and
 privacy questions go to GitHub issues at
-https://github.com/DGaffney/cocore .
+https://github.com/graze-social/cocore .
 `,
 };

@@ -117,7 +117,7 @@ preflight() {
   if [[ ! -f "$REPO_ROOT/provider/Cargo.toml" ]]; then
     missing_dep "cocore checkout" \
       "this installer must be run from a clone of the cocore repo (provider/Cargo.toml not found at $REPO_ROOT)." \
-      "git clone https://github.com/DGaffney/cocore.git && cd cocore" \
+      "git clone https://github.com/graze-social/cocore.git && cd cocore" \
       "" \
       "If you only have the prebuilt tarball, run install.sh from inside it instead."
   fi

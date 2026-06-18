@@ -48,7 +48,7 @@ release if you'd rather download + drag it to /Applications yourself.
 Fastest if the Mac already has a clone of the cocore repo.
 
 ```bash
-git clone https://github.com/DGaffney/cocore.git
+git clone https://github.com/graze-social/cocore.git
 cd cocore
 make mac-install
 ```

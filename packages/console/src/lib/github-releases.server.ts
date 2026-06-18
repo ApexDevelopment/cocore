@@ -14,7 +14,7 @@
 // with a clear message, since silent failure would just give the
 // installer the same 404 the public path produces.
 
-const COCORE_REPO = "DGaffney/cocore";
+const COCORE_REPO = "graze-social/cocore";
 
 const DEFAULT_ASSET_NAME = "cocore-mac-arm64.tar.gz";
 
