@@ -21,7 +21,7 @@ export type AppviewIndexedRecord = {
 };
 let warnedMissingAppviewUrl = false;
 
-export function getAppviewBaseUrl(): string {
+function getAppviewBaseUrl(): string {
   const fromEnv = process.env["COCORE_APPVIEW_URL"]?.trim() || process.env["APPVIEW"]?.trim() || "";
   if (fromEnv) return fromEnv.replace(/\/$/, "");
   if (!warnedMissingAppviewUrl) {

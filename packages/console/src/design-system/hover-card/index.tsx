@@ -71,12 +71,12 @@ function HoverCardInner({
   const showTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const clearHideTimeout = () => {
+  const clearHideTimeout = useCallback(() => {
     if (hideTimeoutRef.current) {
       clearTimeout(hideTimeoutRef.current);
       hideTimeoutRef.current = null;
     }
-  };
+  }, []);
 
   const clearShowTimeout = () => {
     if (showTimeoutRef.current) {

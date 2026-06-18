@@ -5,7 +5,6 @@ import { useMutation, useQuery, type UseMutationResult } from "@tanstack/react-q
 import { useMemo, useState, type ReactNode } from "react";
 
 import {
-  appviewConfigQueryOptions,
   getReceiptsAppviewQueryOptions,
   getSettlementsAppviewQueryOptions,
   listProvidersAppviewQueryOptions,
@@ -318,8 +317,6 @@ function errMessage(e: unknown): string {
 }
 
 export function AppviewExplorer() {
-  const { data: config } = useQuery(appviewConfigQueryOptions);
-
   const { data: session } = useQuery(getSessionQueryOptions);
 
   const [providerF, setProviderF] = useState("");

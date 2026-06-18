@@ -237,6 +237,13 @@ function HeaderLayoutChrome() {
                 <FooterRouterLink to="/blog" preload="intent">
                   Blog
                 </FooterRouterLink>
+                <DSLink
+                  href="https://github.com/graze-social/cocore"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Code
+                </DSLink>
               </Footer.NavGroup>
               <Footer.NavGroup title="Legal">
                 <FooterRouterLink to="/terms" preload="intent">

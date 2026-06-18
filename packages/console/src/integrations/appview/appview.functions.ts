@@ -9,7 +9,6 @@ import {
   appviewListProvidersEffect,
   appviewVerifyReceiptEffect,
   appviewVerifySettlementEffect,
-  getAppviewBaseUrl,
   type AppviewIndexedRecord,
 } from "@/integrations/appview/appview.server.ts";
 import { resolveActorsForDids, type ResolvedActor } from "@/lib/friends.server.ts";
@@ -57,17 +56,6 @@ async function enrichIndexedRecords(
     };
   });
 }
-
-/** Which AppView the console talks to (set `COCORE_APPVIEW_URL` or `APPVIEW`). */
-const getAppviewConfigServerFn = createServerFn({ method: "GET" }).handler(() =>
-  Promise.resolve({ baseUrl: getAppviewBaseUrl() } as const),
-);
-
-export const appviewConfigQueryOptions = queryOptions({
-  queryKey: ["appview-config"] as const,
-  queryFn: getAppviewConfigServerFn,
-  staleTime: 60_000,
-});
 
 const listProvidersAppviewServerFn = createServerFn({ method: "GET" }).handler(async () => {
   const data = await runAppview(appviewListProvidersEffect);
