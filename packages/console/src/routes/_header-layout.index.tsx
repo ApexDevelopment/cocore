@@ -1492,7 +1492,7 @@ function MarketingPage() {
             {marketing.stats.firstTokenP50Ms !== null ? (
               <>
                 {formatLatencyMs(marketing.stats.firstTokenP50Ms)}
-                <span {...stylex.props(styles.statUnit)}>p50 · last 100 jobs</span>
+                <span {...stylex.props(styles.statUnit)}>p50</span>
               </>
             ) : (
               <>

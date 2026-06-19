@@ -1,10 +1,9 @@
 "use client";
 
-import * as stylex from "@stylexjs/stylex";
 import { useRouterState } from "@tanstack/react-router";
 import { useCallback } from "react";
 
-import { docsStyles } from "@/components/docs/docs-page.stylex.tsx";
+import { DocsMobileJumpSelect } from "@/components/docs/docs-mobile-jump-select.tsx";
 import {
   INFERENCE_DOCS_CATALOG,
   inferenceDocsHref,
@@ -13,6 +12,7 @@ import {
 } from "@/lib/inference-docs/navigation.ts";
 
 const groups = inferenceDocsJumpNavGroups();
+const OVERVIEW_KEY = "overview";
 
 function activeSlug(pathname: string): InferenceDocsSlug | null {
   const prefix = "/docs/inference/";
@@ -22,38 +22,30 @@ function activeSlug(pathname: string): InferenceDocsSlug | null {
   return slug as InferenceDocsSlug;
 }
 
+const selectGroups = groups.map((group) => ({
+  label: group.label,
+  options: group.options.map((option) => ({
+    id: option.slug ?? OVERVIEW_KEY,
+    label: option.label,
+  })),
+}));
+
 export function InferenceDocsMobileNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const value = activeSlug(pathname);
+  const value = activeSlug(pathname) ?? OVERVIEW_KEY;
 
-  const onChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-    const slug = event.target.value;
-    globalThis.location.assign(inferenceDocsHref(slug === "" ? null : (slug as InferenceDocsSlug)));
+  const onValueChange = useCallback((id: string) => {
+    const slug = id === OVERVIEW_KEY ? null : (id as InferenceDocsSlug);
+    globalThis.location.assign(inferenceDocsHref(slug));
   }, []);
 
   return (
-    <div {...stylex.props(docsStyles.mobileJumpBar)}>
-      <label {...stylex.props(docsStyles.mobileJumpLabel)} htmlFor="inference-docs-jump-nav">
-        Jump to
-      </label>
-      <select
-        id="inference-docs-jump-nav"
-        {...stylex.props(docsStyles.mobileJumpSelect)}
-        value={value ?? ""}
-        onChange={onChange}
-        aria-label="Jump to page"
-      >
-        {groups.map((group) => (
-          <optgroup key={group.label} label={group.label}>
-            {group.options.map((option) => (
-              <option key={option.label} value={option.slug ?? ""}>
-                {option.label}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-    </div>
+    <DocsMobileJumpSelect
+      ariaLabel="Jump to page"
+      groups={selectGroups}
+      value={value}
+      onValueChange={onValueChange}
+    />
   );
 }
 
