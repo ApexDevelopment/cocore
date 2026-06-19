@@ -49,17 +49,143 @@ final class ModelManager: ObservableObject {
     init(supervisor: AgentSupervisor? = nil) { self.supervisor = supervisor }
     private var appManaged: Bool { supervisor.map { !$0.isLaunchAgentManaged } ?? false }
 
-    /// RAM-aware catalog mirrored from the installer's picker, offered as
-    /// quick-adds. These are curated suggestions, not an allowlist — any
-    /// MLX-format HuggingFace `org/model` NSID works via the custom field.
-    static let catalog: [(nsid: String, label: String)] = [
-        ("mlx-community/Qwen2.5-0.5B-Instruct-4bit", "Qwen 2.5 0.5B · needs ~4GB"),
-        ("mlx-community/Qwen2.5-3B-Instruct-4bit", "Qwen 2.5 3B · needs ~8GB"),
-        ("mlx-community/gemma-3-4b-it-qat-4bit", "Gemma 3 4B · needs ~8GB"),
-        ("mlx-community/Qwen2.5-7B-Instruct-4bit", "Qwen 2.5 7B · needs ~16GB"),
-        ("mlx-community/Qwen2.5-32B-Instruct-4bit", "Qwen 2.5 32B · needs ~32GB"),
-        ("mlx-community/Llama-3.3-70B-Instruct-4bit", "Llama 3.3 70B · needs ~64GB"),
+    /// Curated quick-add catalog. `minRamGB` floors mirror the agent's
+    /// `pricing::pickable_for_machine`. These are suggestions, not an
+    /// allowlist — any MLX-format HuggingFace `org/model` NSID works via
+    /// the custom field.
+    static let catalog: [(nsid: String, label: String, minRamGB: Int)] = [
+        ("mlx-community/Qwen2.5-0.5B-Instruct-4bit", "Qwen 2.5 0.5B", 4),
+        ("mlx-community/Qwen2.5-3B-Instruct-4bit", "Qwen 2.5 3B", 8),
+        ("mlx-community/gemma-3-4b-it-qat-4bit", "Gemma 3 4B", 8),
+        ("mlx-community/Qwen2.5-7B-Instruct-4bit", "Qwen 2.5 7B", 16),
+        ("mlx-community/Qwen2.5-32B-Instruct-4bit", "Qwen 2.5 32B", 32),
+        ("mlx-community/Llama-3.3-70B-Instruct-4bit", "Llama 3.3 70B", 64),
     ]
+
+    /// This Mac's physical RAM in GB (rounded), via sysctl `hw.memsize`.
+    /// 0 if the probe fails, in which case the picker degrades to showing
+    /// every model without a fit judgment.
+    static let deviceRamGB: Int = {
+        var bytes: UInt64 = 0
+        var size = MemoryLayout<UInt64>.size
+        guard sysctlbyname("hw.memsize", &bytes, &size, nil, 0) == 0, bytes > 0 else { return 0 }
+        return Int((Double(bytes) / 1_073_741_824.0).rounded())
+    }()
+
+    static func fitsDevice(_ minRamGB: Int) -> Bool {
+        deviceRamGB == 0 || minRamGB <= deviceRamGB
+    }
+
+    /// The biggest catalog model that fits this Mac — the suggested
+    /// default. nil when RAM is unknown or nothing fits.
+    static var recommendedNSID: String? {
+        guard deviceRamGB > 0 else { return nil }
+        return catalog.filter { $0.minRamGB <= deviceRamGB }
+            .max(by: { $0.minRamGB < $1.minRamGB })?
+            .nsid
+    }
+
+    /// Catalog ordered best-for-this-device first: fitting models by
+    /// descending size (recommended on top), then the ones that need more
+    /// RAM than this Mac has. Falls back to declaration order when RAM is
+    /// unknown.
+    static var catalogForDevice: [(nsid: String, label: String, minRamGB: Int)] {
+        guard deviceRamGB > 0 else { return catalog }
+        let fits = catalog.filter { $0.minRamGB <= deviceRamGB }.sorted { $0.minRamGB > $1.minRamGB }
+        let tooBig = catalog.filter { $0.minRamGB > deviceRamGB }.sorted { $0.minRamGB < $1.minRamGB }
+        return fits + tooBig
+    }
+
+    // MARK: per-model schedules
+
+    /// A per-model serve window: hours 0–23, `end` exclusive, wrap allowed
+    /// (start > end = overnight). Byte-compatible with the agent's
+    /// `COCORE_MODEL_SCHEDULES` JSON.
+    struct Window: Equatable, Codable {
+        var start: Int
+        var end: Int
+    }
+    static let schedulesDefaultsKey = "inferenceModelsSchedules"
+
+    /// Per-model windows from UserDefaults, stored as JSON
+    /// `{"model":{"start":9,"end":17}}` — the same shape the agent reads.
+    /// Out-of-range / empty windows are dropped (that model stays always-on).
+    static func loadSchedules() -> [String: Window] {
+        guard let raw = UserDefaults.standard.string(forKey: schedulesDefaultsKey),
+            let data = raw.data(using: .utf8),
+            let obj = try? JSONDecoder().decode([String: Window].self, from: data)
+        else { return [:] }
+        return obj.filter { (0...23).contains($0.value.start) && (0...23).contains($0.value.end) && $0.value.start != $0.value.end }
+    }
+
+    static func saveSchedules(_ schedules: [String: Window]) {
+        let clean = schedules.filter { $0.value.start != $0.value.end }
+        if clean.isEmpty {
+            UserDefaults.standard.removeObject(forKey: schedulesDefaultsKey)
+            return
+        }
+        if let data = try? JSONEncoder().encode(clean), let json = String(data: data, encoding: .utf8) {
+            UserDefaults.standard.set(json, forKey: schedulesDefaultsKey)
+        }
+    }
+
+    /// The `COCORE_MODEL_SCHEDULES` value to hand the agent, or nil when no
+    /// per-model schedules are set (every model always-on).
+    static func modelSchedulesEnvJSON() -> String? {
+        let s = loadSchedules()
+        guard !s.isEmpty, let data = try? JSONEncoder().encode(s),
+            let json = String(data: data, encoding: .utf8)
+        else { return nil }
+        return json
+    }
+
+    /// Catalog RAM floor for a model id, or 0 for an off-catalog/unknown one
+    /// (mirrors the agent's `pricing::min_ram_gb` → None handling).
+    static func minRamGB(for nsid: String) -> Int {
+        catalog.first(where: { $0.nsid == nsid })?.minRamGB ?? 0
+    }
+
+    /// Is a model active at `hour` given its window? No window = always on.
+    static func active(at hour: Int, window: Window?) -> Bool {
+        guard let w = window else { return true }
+        return w.start < w.end ? (hour >= w.start && hour < w.end) : (hour >= w.start || hour < w.end)
+    }
+
+    /// Overprovisioning check (the validator half): for each hour, sum the
+    /// active models' RAM floors; if any hour's total exceeds this Mac's RAM,
+    /// return a human warning naming the worst hour. nil when every hour fits
+    /// (or device RAM is unknown). The agent enforces the same budget by
+    /// pruning largest-first, so this is a "you didn't mean to do that" nudge.
+    static func overprovisionWarning(models: [String], schedules: [String: Window]) -> String? {
+        guard deviceRamGB > 0 else { return nil }
+        var worstHour = 0
+        var worstSum = 0
+        for hour in 0..<24 {
+            let sum = models
+                .filter { active(at: hour, window: schedules[$0]) }
+                .map { minRamGB(for: $0) }
+                .reduce(0, +)
+            if sum > worstSum {
+                worstSum = sum
+                worstHour = hour
+            }
+        }
+        guard worstSum > deviceRamGB else { return nil }
+        return "At \(PreferencesView.hourLabel(worstHour)), \(worstSum)GB of models are scheduled at once — more than this Mac's \(deviceRamGB)GB. The agent will drop the largest until they fit; stagger their hours so they don't overlap."
+    }
+
+    /// Persist the full per-model schedule set and reload the agent. Called
+    /// debounced from the editor so dragging a picker doesn't bounce the
+    /// agent on every tick.
+    func applySchedules(_ schedules: [String: Window]) async {
+        Self.saveSchedules(schedules)
+        if let sup = supervisor {
+            await sup.applyModelSchedulesAndReconnect()
+        } else {
+            // LaunchAgent install (no supervisor handle here): edit plist + bounce.
+            AgentSupervisor.applyModelSchedules(json: Self.modelSchedulesEnvJSON())
+        }
+    }
 
     static func storedModels() -> [String] {
         (UserDefaults.standard.string(forKey: modelsDefaultsKey) ?? "")
@@ -239,6 +365,10 @@ struct ModelsView: View {
     @StateObject private var venv = VenvBootstrapper()
     @State private var customNSID = ""
     @State private var venvInstalled = VenvBootstrapper.isInstalled
+    /// Editor state for per-model schedules; source of truth while editing.
+    /// Loaded from UserDefaults on appear, applied (debounced) on change.
+    @State private var schedules: [String: ModelManager.Window] = [:]
+    @State private var scheduleApplyTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -284,22 +414,47 @@ struct ModelsView: View {
                 }
             }
 
+            scheduleSection
+
             GroupBox("Add from catalog") {
-                ForEach(ModelManager.catalog, id: \.nsid) { item in
+                ForEach(ModelManager.catalogForDevice, id: \.nsid) { item in
+                    let fits = ModelManager.fitsDevice(item.minRamGB)
+                    let recommended = item.nsid == ModelManager.recommendedNSID
                     HStack {
                         VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 6) {
+                                Text(item.label)
+                                    .font(.caption)
+                                    .fontWeight(recommended ? .semibold : .regular)
+                                if recommended {
+                                    Text("recommended")
+                                        .font(.caption2)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Color.accentColor.opacity(0.15))
+                                        .clipShape(Capsule())
+                                }
+                            }
                             Text(item.nsid)
-                                .font(.system(.caption, design: .monospaced))
+                                .font(.system(.caption2, design: .monospaced))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
-                            Text(item.label)
-                                .font(.caption2)
                                 .foregroundStyle(.secondary)
+                            Text(
+                                ModelManager.deviceRamGB == 0
+                                    ? "needs ~\(item.minRamGB)GB"
+                                    : (fits
+                                        ? "needs ~\(item.minRamGB)GB · fits this Mac (\(ModelManager.deviceRamGB)GB)"
+                                        : "needs ~\(item.minRamGB)GB — more than this Mac's \(ModelManager.deviceRamGB)GB")
+                            )
+                            .font(.caption2)
+                            .foregroundStyle(fits ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
                         }
                         Spacer()
                         Button("Add") { Task { await manager.add(item.nsid) } }
                             .disabled(manager.busy || manager.models.contains(item.nsid))
                     }
+                    .opacity(fits ? 1 : 0.65)
                     .padding(.vertical, 2)
                 }
             }
@@ -316,9 +471,10 @@ struct ModelsView: View {
                     }
                     .disabled(manager.busy || customNSID.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                Text("Browse MLX models at huggingface.co/mlx-community. Find a model elsewhere? Look for an MLX (4-bit) conversion — the original PyTorch repo won't load.")
+                Text("Browse MLX models at [huggingface.co/mlx-community](https://huggingface.co/mlx-community). Find a model elsewhere? Look for an MLX (4-bit) conversion — the original PyTorch repo won't load.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .tint(.accentColor)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -348,6 +504,94 @@ struct ModelsView: View {
         .frame(minWidth: 460, maxWidth: .infinity, minHeight: 500, maxHeight: .infinity)
         .brandStyled()
         .task { await manager.refresh() }
+        .onAppear { schedules = ModelManager.loadSchedules() }
+    }
+
+    // MARK: per-model schedule editor
+
+    @ViewBuilder private var scheduleSection: some View {
+        GroupBox("Per-model schedule") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Give a model its own hours so it only loads (and uses RAM) part of the day. A model with no schedule is always on while the agent serves.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let warn = ModelManager.overprovisionWarning(models: manager.models, schedules: schedules) {
+                    Text("⚠ \(warn)")
+                        .font(.footnote).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if manager.models.isEmpty {
+                    Text("Add a model above to schedule it.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ForEach(manager.models, id: \.self) { m in scheduleRow(m) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func scheduleRow(_ m: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(m)
+                    .font(.system(.caption, design: .monospaced))
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Toggle(
+                    "Custom hours",
+                    isOn: Binding(
+                        get: { schedules[m] != nil },
+                        set: { on in
+                            schedules[m] = on ? ModelManager.Window(start: 9, end: 17) : nil
+                            scheduleChanged()
+                        }
+                    )
+                )
+                .toggleStyle(.switch).labelsHidden().disabled(manager.busy)
+            }
+            if schedules[m] != nil {
+                HStack(spacing: 6) {
+                    Text("from").font(.caption2).foregroundStyle(.secondary)
+                    hourPicker(m, isStart: true)
+                    Text("to").font(.caption2).foregroundStyle(.secondary)
+                    hourPicker(m, isStart: false)
+                    Spacer()
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func hourPicker(_ m: String, isStart: Bool) -> some View {
+        Picker(
+            "",
+            selection: Binding(
+                get: { isStart ? (schedules[m]?.start ?? 9) : (schedules[m]?.end ?? 17) },
+                set: { v in
+                    var w = schedules[m] ?? ModelManager.Window(start: 9, end: 17)
+                    if isStart { w.start = v } else { w.end = v }
+                    schedules[m] = w
+                    scheduleChanged()
+                }
+            )
+        ) {
+            ForEach(0..<24) { h in Text(PreferencesView.hourLabel(h)).tag(h) }
+        }
+        .labelsHidden().frame(width: 116).disabled(manager.busy)
+    }
+
+    /// Debounce: the editor updates instantly, but the (expensive) agent
+    /// bounce waits ~800ms after the last change so dragging a picker
+    /// doesn't restart the agent on every tick.
+    private func scheduleChanged() {
+        scheduleApplyTask?.cancel()
+        let snapshot = schedules
+        scheduleApplyTask = Task {
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            if Task.isCancelled { return }
+            await manager.applySchedules(snapshot)
+        }
     }
 
     /// Prompt to install the Python runtime real models need, with live
