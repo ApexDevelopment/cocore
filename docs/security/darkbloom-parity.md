@@ -50,12 +50,20 @@ invariant #5.
 | 15 | tier markers | ✅ honest end-to-end (producer→Register→advisor `trustTier`→verifier recompute); console display = cosmetic follow-up |
 | 0 | agent signing posture | ✅ `cocore-provider.entitlements` + `sign-and-notarize.sh` — **validated** (flags `0x12000`, no get-task-allow, hypervisor) |
 
-**Remaining distance (environment/ops-gated, not code-writable here):**
-- **#1/#2 native in-process MLX token loop** — `engines/native_mlx.rs` scaffold is
-  done (in-process + metallib reporting, refuses to serve until wired); the MLX
-  wiring needs a **full-Xcode (Metal toolchain) build host** — absent here (CLT
-  only). The S1 design question is answered by the darkbloom reference
-  (precompiled `.metallib`, no `allow-jit`).
+**Update 2026-06-20 — #1/#2 native engine: ✅ DONE & PROVEN LIVE.** Full Xcode +
+Metal toolchain installed. `provider/mlx-engine` (Swift + upstream MLX-Swift)
+runs inference IN-PROCESS: the Rust agent loads a model through
+`libCoCoreMLX.dylib`, streams real tokens, returns token counts, and locates +
+hashes the metallib. Validated on this Mac (Qwen2.5-0.5B-4bit) AND under the real
+confidential posture — a `runtime,library`-signed binary (library validation
+enforced) loads the same-team-signed dylib and infers. Notarization Accepted by
+Apple. The dynamic-lib choice (vs darkbloom's static single binary) is kept at
+parity by enforced library validation + pinning both `metallibHash` and
+`engineLibHash`. Remaining engine work is operational: switch the default serve
+path onto the native engine per model, and (Track C) publish the
+cdHash/metallib/dylib hashes to the known-good set.
+
+**Remaining distance (ops-gated, not code-writable here):**
 - **#8 producing a real Apple MDA chain** — the verifier + binding are done and
   proven; emitting a real chain needs **MDM ACME `device-attest-01` enrollment**
   (S4, ops), not code.
