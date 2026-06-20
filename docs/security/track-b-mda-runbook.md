@@ -34,12 +34,18 @@ providers to `trustLevel: hardware-attested`.
 
 ## Ordered to-do
 
-### 0. Critical path — START NOW (longest Apple lead time)
-- [ ] **APNs MDM push certificate.** Generate a CSR for NanoMDM, get it
-      **co-signed by a registered MDM vendor** (the free community service
-      **`mdmcert.download`** is the standard route for self-hosted MDMs), then
-      upload the vendor-signed CSR to the **Apple Push Certificates Portal**
-      (`identity.apple.com`) and download the `.pem`. Keep the private key safe.
+### 0. Critical path — ✅ DONE (2026-06-20, via the FREE path — $0)
+- [x] **APNs MDM push certificate** obtained via **`mdmcert.download`** (free
+      community vendor) + the Apple Push Certificates Portal (`identity.apple.com`).
+      Material lives OUTSIDE the repo in `~/cocore-mdm/` (push.key, push.p12,
+      apns_push.pem). Renew annually with the SAME Apple ID + SAME push.key.
+  - **GOTCHA THAT COST US HOURS:** the portal wants the **base64-encoded** plist
+    (the `*.plist.b64` mdmcert emits), NOT the decoded raw `.plist`. Uploading the
+    raw XML plist gives a generic "Invalid Certificate Signing Request" for
+    everyone, on any Apple ID — it looks like a vendor/account problem but is
+    purely an encoding mistake. Decrypt chain: hex-decode `.p7` → `openssl cms
+    -decrypt` → that yields `.plist.b64`, and THAT base64 file is what you upload.
+  - Confirms the free self-hosted path is viable: no Mosyle / no per-device cost.
 - [ ] Confirm the Developer Program membership is **GRAZE SOCIAL PBC** (org), not
       Individual (`developer.apple.com/account` → Membership).
 
