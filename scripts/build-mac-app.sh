@@ -16,6 +16,24 @@
 #   ./scripts/build-mac-app.sh              # release build
 #   CONFIG=debug ./scripts/build-mac-app.sh # faster debug build
 #   OPEN=1 ./scripts/build-mac-app.sh       # build then launch it
+#
+# SECURE / NATIVE build (WS-A, opt-in):
+#   COCORE_BUILD_NATIVE=1 ./scripts/build-mac-app.sh
+#
+#   The DEFAULT build ships the subprocess inference engine (Python venv
+#   over a UDS). That path cannot serve the confidential tier: the
+#   plaintext leaves the measured, signed `cocore` binary. Setting
+#   COCORE_BUILD_NATIVE=1 instead builds with `--features native_mlx`, so
+#   the binary contains the in-process MLX engine (libCoCoreMLX.dylib +
+#   precompiled mlx.metallib) and `inProcessBackend` can become true. This
+#   path REQUIRES the Metal toolchain (full Xcode, not just Command Line
+#   Tools) because provider/build.rs runs `swift build` of the MLX engine.
+#   It is hardened-signed + notarized exactly like the default path.
+#
+#   After a native build you MUST extract its cdHash and register it as
+#   known-good, or the confidential tier silently downgrades to
+#   best-effort. See scripts/extract-cdhash.sh, scripts/register-known-good.sh,
+#   and docs/secure-release.md.
 
 set -euo pipefail
 
@@ -24,6 +42,9 @@ readonly SHELL_DIR="$REPO_ROOT/provider-shell"
 readonly SRC_RES="$SHELL_DIR/Sources/CoCoreShell/Resources"
 CONFIG="${CONFIG:-release}"
 OPEN="${OPEN:-0}"
+# Opt-in secure/native build (WS-A). When 1, the bundled cocore CLI is built
+# with the in-process MLX engine so it can serve the confidential tier.
+COCORE_BUILD_NATIVE="${COCORE_BUILD_NATIVE:-0}"
 readonly APP_NAME="cocore"
 readonly EXEC_NAME="CoCoreShell"
 readonly BUNDLE_ID="dev.cocore.shell"
@@ -102,11 +123,60 @@ COCORE_CLI="$REPO_ROOT/provider/target/release/cocore"
 # Always (re)build so the bundled CLI matches the current source version —
 # a stale target/ binary from an earlier version must not get shipped.
 # cargo is incremental, so this is a no-op when already up to date.
+#
+# Default path: subprocess engine (no native_mlx feature) — keeps normal
+# releases building on any host. Secure path (COCORE_BUILD_NATIVE=1): add
+# `--features native_mlx`, which makes provider/build.rs `swift build` the
+# CoCoreMLX engine + link libCoCoreMLX.dylib (the in-process confidential
+# engine). That step needs the Metal toolchain (full Xcode), so we fail
+# fast with a clear message rather than a deep cargo/swift error.
+CARGO_FEATURE_ARGS=()
+if [[ "$COCORE_BUILD_NATIVE" == "1" ]]; then
+  bold "==> SECURE build requested (COCORE_BUILD_NATIVE=1): --features native_mlx"
+  # build.rs runs `swift build --product CoCoreMLX`, which compiles Metal
+  # shaders. `xcodebuild -version` only succeeds with a full Xcode + a
+  # selected developer dir (Command Line Tools alone can't compile .metal).
+  if ! xcodebuild -version >/dev/null 2>&1; then
+    die "COCORE_BUILD_NATIVE=1 needs the Metal toolchain (full Xcode). \
+'xcodebuild -version' failed — install Xcode and run \
+'sudo xcode-select -s /Applications/Xcode.app/Contents/Developer', then retry."
+  fi
+  note "Metal toolchain: $(xcodebuild -version 2>/dev/null | tr '\n' ' ')"
+  CARGO_FEATURE_ARGS+=(--features native_mlx)
+else
+  note "default (non-native) build: subprocess engine; confidential tier NOT served."
+  note "set COCORE_BUILD_NATIVE=1 for the secure/native confidential build."
+fi
 bold "==> build cocore release binary (to bundle in the app)"
-( cd "$REPO_ROOT/provider" && cargo build --release --locked )
+# Expand the (possibly empty) feature args safely under bash 3.2 + `set -u`:
+# ${arr[@]:+"${arr[@]}"} yields nothing when the array is empty.
+( cd "$REPO_ROOT/provider" && cargo build --release --locked ${CARGO_FEATURE_ARGS[@]:+"${CARGO_FEATURE_ARGS[@]}"} )
 [[ -x "$COCORE_CLI" ]] || die "cocore release binary not found at $COCORE_CLI"
 install -m 755 "$COCORE_CLI" "$APP/Contents/MacOS/cocore"
 note "bundled cocore CLI ($("$COCORE_CLI" --version 2>/dev/null))"
+
+# Secure/native build: colocate the in-process MLX engine next to the CLI so
+# its @executable_path rpath resolves at runtime. build.rs links the dylib
+# from provider/mlx-engine/.build/release; MLX loads mlx.metallib from the
+# same directory as the dylib (see MLXEngine.locateMetallib). Both are signed
+# inside-out below and their SHA-256 hashes are pinned into the attestation
+# (engineLibHash / metallibHash) — see scripts/extract-cdhash.sh.
+if [[ "$COCORE_BUILD_NATIVE" == "1" ]]; then
+  bold "==> bundle native MLX engine (libCoCoreMLX.dylib + mlx.metallib)"
+  MLX_BUILD_DIR="$REPO_ROOT/provider/mlx-engine/.build/release"
+  DYLIB="$MLX_BUILD_DIR/libCoCoreMLX.dylib"
+  [[ -f "$DYLIB" ]] || die "native build: $DYLIB not found (did 'swift build --product CoCoreMLX' run?)"
+  install -m 755 "$DYLIB" "$APP/Contents/MacOS/libCoCoreMLX.dylib"
+  note "bundled libCoCoreMLX.dylib"
+  # The precompiled mlx.metallib ships beside the dylib (SwiftPM places Cmlx's
+  # metallib under .build; it may live directly in the build dir or inside a
+  # *.bundle). Copy the first match next to the CLI so the engine finds it.
+  METALLIB="$(find "$MLX_BUILD_DIR" -name '*.metallib' -print -quit 2>/dev/null || true)"
+  [[ -n "$METALLIB" && -f "$METALLIB" ]] \
+    || die "native build: no *.metallib under $MLX_BUILD_DIR — the confidential tier can't load GPU kernels without it."
+  install -m 644 "$METALLIB" "$APP/Contents/MacOS/$(basename "$METALLIB")"
+  note "bundled $(basename "$METALLIB")"
+fi
 
 # Bundle the Python-venv bootstrap script so a download-only install can
 # set up the real-model runtime on demand (VenvBootstrapper runs it).
@@ -148,11 +218,25 @@ else
   # at spawn ("Launchd job spawn failed", no crash log). Removing the
   # unused entitlement is the fix.
   /usr/libexec/PlistBuddy -c "Delete :keychain-access-groups" "$ENTITLEMENTS" >/dev/null 2>&1 || true
-  # Sign inside-out: the bundled cocore CLI first, then the app bundle.
-  # Both need Hardened Runtime (--options runtime) + a secure --timestamp
-  # for notarization. We sign each explicitly rather than using fragile
-  # --deep. The CLI gets no entitlements file (it needs none); the app
-  # gets the resolved one above.
+  # Sign inside-out: deepest nested code first, then the cocore CLI, then the
+  # app bundle. Everything needs Hardened Runtime (--options runtime) + a
+  # secure --timestamp for notarization. We sign each explicitly rather than
+  # using fragile --deep.
+  #
+  # Secure/native build: the MLX engine dylib + metallib are nested inside the
+  # CLI's dylib graph, so they sign FIRST. The dylib is signed with the SAME
+  # Developer ID as the CLI so the CLI's enforced library validation
+  # (--options runtime,library) accepts it; if the team differs, the loader
+  # refuses it and the confidential tier won't come up. (The .metallib is a
+  # data blob, not Mach-O — codesign treats it as a resource sealed by the app
+  # signature; we hash it separately for the attestation, so no per-file
+  # codesign is needed there.)
+  if [[ "$COCORE_BUILD_NATIVE" == "1" ]]; then
+    codesign --force --options runtime,library --timestamp \
+      --sign "$COCORE_SIGN_ID" "$APP/Contents/MacOS/libCoCoreMLX.dylib" 2>&1 | sed 's/^/  /' \
+      || die "codesign (libCoCoreMLX.dylib) failed"
+    note "signed native MLX engine dylib (library validation)"
+  fi
   codesign --force --options runtime --timestamp \
     --sign "$COCORE_SIGN_ID" "$APP/Contents/MacOS/cocore" 2>&1 | sed 's/^/  /' \
     || die "codesign (bundled cocore CLI) failed"
