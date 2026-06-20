@@ -226,8 +226,7 @@ final class AgentSupervisor {
             NSLog("cocore: provider binary not found")
             return
         }
-        let advisor = UserDefaults.standard.string(forKey: "advisorUrl")
-            ?? "wss://advisor.cocore.dev/v1/agent"
+        let advisor = Endpoints.advisorURL
         let p = Process()
         p.executableURL = bin
         p.arguments = ["agent", "serve", "--advisor", advisor]
@@ -240,8 +239,7 @@ final class AgentSupervisor {
             "HOME": NSHomeDirectory(),
             "PATH": "\(NSHomeDirectory())/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
             "COCORE_LOG": "info",
-            "COCORE_CONSOLE": UserDefaults.standard.string(forKey: "consoleBaseUrl")
-                ?? "https://console.cocore.dev",
+            "COCORE_CONSOLE": Endpoints.consoleURL,
             "COCORE_PYTHON_VENV": "\(NSHomeDirectory())/.cocore/python",
             // Full backtraces so the next panic the agent writes to
             // ~/.cocore/last-panic.txt names the exact frame, not just
@@ -282,7 +280,7 @@ final class AgentSupervisor {
         p.standardError = errPipe
         outPipe.fileHandleForReading.readabilityHandler = { [weak self] h in
             guard let line = String(data: h.availableData, encoding: .utf8), !line.isEmpty else { return }
-            Task { @MainActor in self?.onLine?(line) }
+            Task { @MainActor [weak self] in self?.onLine?(line) }
         }
         errPipe.fileHandleForReading.readabilityHandler = { h in
             if let s = String(data: h.availableData, encoding: .utf8), !s.isEmpty {
@@ -298,7 +296,7 @@ final class AgentSupervisor {
             }
         }
         p.terminationHandler = { [weak self] proc in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.process = nil
                 NSLog("cocore agent exited with %d", proc.terminationStatus)
@@ -481,9 +479,8 @@ final class AgentSupervisor {
     /// UserDefaults) to the running agent and reconnect. Same mode split
     /// as `applyScheduleAndReconnect`.
     func applyNetworkAndReconnect() async {
-        let d = UserDefaults.standard
-        let console = d.string(forKey: "consoleBaseUrl") ?? "https://console.cocore.dev"
-        let advisor = d.string(forKey: "advisorUrl") ?? "wss://advisor.cocore.dev/v1/agent"
+        let console = Endpoints.consoleURL
+        let advisor = Endpoints.advisorURL
         if isLaunchAgentManaged {
             Self.applyNetworkConfig(console: console, advisor: advisor)
         } else {

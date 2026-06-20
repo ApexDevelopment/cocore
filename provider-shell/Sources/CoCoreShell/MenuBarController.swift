@@ -63,7 +63,7 @@ final class MenuBarController {
         // LaunchAgent's serving state, every 5s. On the nil→signed-in
         // transition, immediately pull live status.
         pollTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 let wasSignedIn = self.state.session != nil
                 await self.state.refreshSession()
@@ -77,7 +77,7 @@ final class MenuBarController {
         // Live earnings/balance: fetch once now, then every 30s.
         Task { await state.refreshStatus() }
         earningsTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 await self?.state.refreshStatus()
                 // Apply a Pause / Resume done on the website to the local
                 // agent process (stop / start), keeping both sides in sync.
@@ -473,8 +473,7 @@ final class MenuBarController {
 
     @objc private func openProfile() {
         guard let handle = state.session?.handle else { return }
-        let console = UserDefaults.standard.string(forKey: "consoleBaseUrl")
-            ?? "https://console.cocore.dev"
+        let console = Endpoints.consoleURL
         guard let url = URL(string: "\(console)/u/\(handle)") else { return }
         NSWorkspace.shared.open(url)
     }
@@ -543,8 +542,7 @@ final class MenuBarController {
 
         Task {
             await supervisor.stop()
-            let console = UserDefaults.standard.string(forKey: "consoleBaseUrl")
-                ?? "https://console.cocore.dev"
+            let console = Endpoints.consoleURL
             await Uninstaller.run(console: console)
             // Move our own .app to the Trash (the hosted uninstaller wipes
             // the agent, not the GUI bundle), then quit.
@@ -651,7 +649,7 @@ final class MenuBarController {
     /// or pulse phase), so the steady-state cost is a single `stat`.
     private func startHeartbeatTimer() {
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tickHeartbeat() }
+            Task { @MainActor [weak self] in self?.tickHeartbeat() }
         }
     }
 

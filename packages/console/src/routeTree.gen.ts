@@ -50,8 +50,6 @@ import { Route as V1ChatCompletionsRouteImport } from './routes/v1.chat.completi
 import { Route as ApiXrpcDevDotcocoreDotproxyDotputRecordRouteImport } from './routes/api/xrpc/dev[.]cocore[.]proxy[.]putRecord'
 import { Route as ApiXrpcDevDotcocoreDotproxyDotdeleteRecordRouteImport } from './routes/api/xrpc/dev[.]cocore[.]proxy[.]deleteRecord'
 import { Route as ApiXrpcDevDotcocoreDotproxyDotcreateRecordRouteImport } from './routes/api/xrpc/dev[.]cocore[.]proxy[.]createRecord'
-import { Route as ApiXrpcDevDotcocoreDotinferenceDotsubmitRouteImport } from './routes/api/xrpc/dev[.]cocore[.]inference[.]submit'
-import { Route as ApiXrpcDevDotcocoreDotinferenceDotstatusRouteImport } from './routes/api/xrpc/dev[.]cocore[.]inference[.]status'
 import { Route as ApiXrpcDevDotcocoreDotinferenceDotdispatchRouteImport } from './routes/api/xrpc/dev[.]cocore[.]inference[.]dispatch'
 import { Route as ApiXrpcDevDotcocoreDotdevicePairDotstartRouteImport } from './routes/api/xrpc/dev[.]cocore[.]devicePair[.]start'
 import { Route as ApiXrpcDevDotcocoreDotdevicePairDotpollRouteImport } from './routes/api/xrpc/dev[.]cocore[.]devicePair[.]poll'
@@ -61,8 +59,12 @@ import { Route as ApiXrpcDevDotcocoreDotaccountDotlistApiKeysRouteImport } from 
 import { Route as ApiXrpcDevDotcocoreDotaccountDotdeleteApiKeyRouteImport } from './routes/api/xrpc/dev[.]cocore[.]account[.]deleteApiKey'
 import { Route as ApiXrpcDevDotcocoreDotaccountDotcreateApiKeyRouteImport } from './routes/api/xrpc/dev[.]cocore[.]account[.]createApiKey'
 import { Route as ApiV1ModelsRouteImport } from './routes/api/v1/models'
+import { Route as ApiPdsPutRecordRouteImport } from './routes/api/pds/putRecord'
+import { Route as ApiPdsDeleteRecordRouteImport } from './routes/api/pds/deleteRecord'
+import { Route as ApiPdsCreateRecordRouteImport } from './routes/api/pds/createRecord'
 import { Route as ApiInternalWipeEverythingRouteImport } from './routes/api/internal/wipe-everything'
 import { Route as ApiInternalWipeRouteImport } from './routes/api/internal/wipe'
+import { Route as ApiInternalMigrateSessionsToAppviewRouteImport } from './routes/api/internal/migrate-sessions-to-appview'
 import { Route as ApiAgentWhoamiRouteImport } from './routes/api/agent.whoami'
 import { Route as ApiAgentStatusRouteImport } from './routes/api/agent.status'
 import { Route as ApiAgentHealthRouteImport } from './routes/api/agent.health'
@@ -301,18 +303,6 @@ const ApiXrpcDevDotcocoreDotproxyDotcreateRecordRoute =
     path: '/api/xrpc/dev.cocore.proxy.createRecord',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiXrpcDevDotcocoreDotinferenceDotsubmitRoute =
-  ApiXrpcDevDotcocoreDotinferenceDotsubmitRouteImport.update({
-    id: '/api/xrpc/dev.cocore.inference.submit',
-    path: '/api/xrpc/dev.cocore.inference.submit',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiXrpcDevDotcocoreDotinferenceDotstatusRoute =
-  ApiXrpcDevDotcocoreDotinferenceDotstatusRouteImport.update({
-    id: '/api/xrpc/dev.cocore.inference.status',
-    path: '/api/xrpc/dev.cocore.inference.status',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiXrpcDevDotcocoreDotinferenceDotdispatchRoute =
   ApiXrpcDevDotcocoreDotinferenceDotdispatchRouteImport.update({
     id: '/api/xrpc/dev.cocore.inference.dispatch',
@@ -366,6 +356,21 @@ const ApiV1ModelsRoute = ApiV1ModelsRouteImport.update({
   path: '/api/v1/models',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPdsPutRecordRoute = ApiPdsPutRecordRouteImport.update({
+  id: '/api/pds/putRecord',
+  path: '/api/pds/putRecord',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPdsDeleteRecordRoute = ApiPdsDeleteRecordRouteImport.update({
+  id: '/api/pds/deleteRecord',
+  path: '/api/pds/deleteRecord',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPdsCreateRecordRoute = ApiPdsCreateRecordRouteImport.update({
+  id: '/api/pds/createRecord',
+  path: '/api/pds/createRecord',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiInternalWipeEverythingRoute =
   ApiInternalWipeEverythingRouteImport.update({
     id: '/api/internal/wipe-everything',
@@ -377,6 +382,12 @@ const ApiInternalWipeRoute = ApiInternalWipeRouteImport.update({
   path: '/api/internal/wipe',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiInternalMigrateSessionsToAppviewRoute =
+  ApiInternalMigrateSessionsToAppviewRouteImport.update({
+    id: '/api/internal/migrate-sessions-to-appview',
+    path: '/api/internal/migrate-sessions-to-appview',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentWhoamiRoute = ApiAgentWhoamiRouteImport.update({
   id: '/api/agent/whoami',
   path: '/api/agent/whoami',
@@ -562,8 +573,12 @@ export interface FileRoutesByFullPath {
   '/api/agent/health': typeof ApiAgentHealthRoute
   '/api/agent/status': typeof ApiAgentStatusRoute
   '/api/agent/whoami': typeof ApiAgentWhoamiRoute
+  '/api/internal/migrate-sessions-to-appview': typeof ApiInternalMigrateSessionsToAppviewRoute
   '/api/internal/wipe': typeof ApiInternalWipeRoute
   '/api/internal/wipe-everything': typeof ApiInternalWipeEverythingRoute
+  '/api/pds/createRecord': typeof ApiPdsCreateRecordRoute
+  '/api/pds/deleteRecord': typeof ApiPdsDeleteRecordRoute
+  '/api/pds/putRecord': typeof ApiPdsPutRecordRoute
   '/api/v1/models': typeof ApiV1ModelsRoute
   '/api/xrpc/dev.cocore.account.createApiKey': typeof ApiXrpcDevDotcocoreDotaccountDotcreateApiKeyRoute
   '/api/xrpc/dev.cocore.account.deleteApiKey': typeof ApiXrpcDevDotcocoreDotaccountDotdeleteApiKeyRoute
@@ -573,8 +588,6 @@ export interface FileRoutesByFullPath {
   '/api/xrpc/dev.cocore.devicePair.poll': typeof ApiXrpcDevDotcocoreDotdevicePairDotpollRoute
   '/api/xrpc/dev.cocore.devicePair.start': typeof ApiXrpcDevDotcocoreDotdevicePairDotstartRoute
   '/api/xrpc/dev.cocore.inference.dispatch': typeof ApiXrpcDevDotcocoreDotinferenceDotdispatchRoute
-  '/api/xrpc/dev.cocore.inference.status': typeof ApiXrpcDevDotcocoreDotinferenceDotstatusRoute
-  '/api/xrpc/dev.cocore.inference.submit': typeof ApiXrpcDevDotcocoreDotinferenceDotsubmitRoute
   '/api/xrpc/dev.cocore.proxy.createRecord': typeof ApiXrpcDevDotcocoreDotproxyDotcreateRecordRoute
   '/api/xrpc/dev.cocore.proxy.deleteRecord': typeof ApiXrpcDevDotcocoreDotproxyDotdeleteRecordRoute
   '/api/xrpc/dev.cocore.proxy.putRecord': typeof ApiXrpcDevDotcocoreDotproxyDotputRecordRoute
@@ -640,8 +653,12 @@ export interface FileRoutesByTo {
   '/api/agent/health': typeof ApiAgentHealthRoute
   '/api/agent/status': typeof ApiAgentStatusRoute
   '/api/agent/whoami': typeof ApiAgentWhoamiRoute
+  '/api/internal/migrate-sessions-to-appview': typeof ApiInternalMigrateSessionsToAppviewRoute
   '/api/internal/wipe': typeof ApiInternalWipeRoute
   '/api/internal/wipe-everything': typeof ApiInternalWipeEverythingRoute
+  '/api/pds/createRecord': typeof ApiPdsCreateRecordRoute
+  '/api/pds/deleteRecord': typeof ApiPdsDeleteRecordRoute
+  '/api/pds/putRecord': typeof ApiPdsPutRecordRoute
   '/api/v1/models': typeof ApiV1ModelsRoute
   '/api/xrpc/dev.cocore.account.createApiKey': typeof ApiXrpcDevDotcocoreDotaccountDotcreateApiKeyRoute
   '/api/xrpc/dev.cocore.account.deleteApiKey': typeof ApiXrpcDevDotcocoreDotaccountDotdeleteApiKeyRoute
@@ -651,8 +668,6 @@ export interface FileRoutesByTo {
   '/api/xrpc/dev.cocore.devicePair.poll': typeof ApiXrpcDevDotcocoreDotdevicePairDotpollRoute
   '/api/xrpc/dev.cocore.devicePair.start': typeof ApiXrpcDevDotcocoreDotdevicePairDotstartRoute
   '/api/xrpc/dev.cocore.inference.dispatch': typeof ApiXrpcDevDotcocoreDotinferenceDotdispatchRoute
-  '/api/xrpc/dev.cocore.inference.status': typeof ApiXrpcDevDotcocoreDotinferenceDotstatusRoute
-  '/api/xrpc/dev.cocore.inference.submit': typeof ApiXrpcDevDotcocoreDotinferenceDotsubmitRoute
   '/api/xrpc/dev.cocore.proxy.createRecord': typeof ApiXrpcDevDotcocoreDotproxyDotcreateRecordRoute
   '/api/xrpc/dev.cocore.proxy.deleteRecord': typeof ApiXrpcDevDotcocoreDotproxyDotdeleteRecordRoute
   '/api/xrpc/dev.cocore.proxy.putRecord': typeof ApiXrpcDevDotcocoreDotproxyDotputRecordRoute
@@ -722,8 +737,12 @@ export interface FileRoutesById {
   '/api/agent/health': typeof ApiAgentHealthRoute
   '/api/agent/status': typeof ApiAgentStatusRoute
   '/api/agent/whoami': typeof ApiAgentWhoamiRoute
+  '/api/internal/migrate-sessions-to-appview': typeof ApiInternalMigrateSessionsToAppviewRoute
   '/api/internal/wipe': typeof ApiInternalWipeRoute
   '/api/internal/wipe-everything': typeof ApiInternalWipeEverythingRoute
+  '/api/pds/createRecord': typeof ApiPdsCreateRecordRoute
+  '/api/pds/deleteRecord': typeof ApiPdsDeleteRecordRoute
+  '/api/pds/putRecord': typeof ApiPdsPutRecordRoute
   '/api/v1/models': typeof ApiV1ModelsRoute
   '/api/xrpc/dev.cocore.account.createApiKey': typeof ApiXrpcDevDotcocoreDotaccountDotcreateApiKeyRoute
   '/api/xrpc/dev.cocore.account.deleteApiKey': typeof ApiXrpcDevDotcocoreDotaccountDotdeleteApiKeyRoute
@@ -733,8 +752,6 @@ export interface FileRoutesById {
   '/api/xrpc/dev.cocore.devicePair.poll': typeof ApiXrpcDevDotcocoreDotdevicePairDotpollRoute
   '/api/xrpc/dev.cocore.devicePair.start': typeof ApiXrpcDevDotcocoreDotdevicePairDotstartRoute
   '/api/xrpc/dev.cocore.inference.dispatch': typeof ApiXrpcDevDotcocoreDotinferenceDotdispatchRoute
-  '/api/xrpc/dev.cocore.inference.status': typeof ApiXrpcDevDotcocoreDotinferenceDotstatusRoute
-  '/api/xrpc/dev.cocore.inference.submit': typeof ApiXrpcDevDotcocoreDotinferenceDotsubmitRoute
   '/api/xrpc/dev.cocore.proxy.createRecord': typeof ApiXrpcDevDotcocoreDotproxyDotcreateRecordRoute
   '/api/xrpc/dev.cocore.proxy.deleteRecord': typeof ApiXrpcDevDotcocoreDotproxyDotdeleteRecordRoute
   '/api/xrpc/dev.cocore.proxy.putRecord': typeof ApiXrpcDevDotcocoreDotproxyDotputRecordRoute
@@ -803,8 +820,12 @@ export interface FileRouteTypes {
     | '/api/agent/health'
     | '/api/agent/status'
     | '/api/agent/whoami'
+    | '/api/internal/migrate-sessions-to-appview'
     | '/api/internal/wipe'
     | '/api/internal/wipe-everything'
+    | '/api/pds/createRecord'
+    | '/api/pds/deleteRecord'
+    | '/api/pds/putRecord'
     | '/api/v1/models'
     | '/api/xrpc/dev.cocore.account.createApiKey'
     | '/api/xrpc/dev.cocore.account.deleteApiKey'
@@ -814,8 +835,6 @@ export interface FileRouteTypes {
     | '/api/xrpc/dev.cocore.devicePair.poll'
     | '/api/xrpc/dev.cocore.devicePair.start'
     | '/api/xrpc/dev.cocore.inference.dispatch'
-    | '/api/xrpc/dev.cocore.inference.status'
-    | '/api/xrpc/dev.cocore.inference.submit'
     | '/api/xrpc/dev.cocore.proxy.createRecord'
     | '/api/xrpc/dev.cocore.proxy.deleteRecord'
     | '/api/xrpc/dev.cocore.proxy.putRecord'
@@ -881,8 +900,12 @@ export interface FileRouteTypes {
     | '/api/agent/health'
     | '/api/agent/status'
     | '/api/agent/whoami'
+    | '/api/internal/migrate-sessions-to-appview'
     | '/api/internal/wipe'
     | '/api/internal/wipe-everything'
+    | '/api/pds/createRecord'
+    | '/api/pds/deleteRecord'
+    | '/api/pds/putRecord'
     | '/api/v1/models'
     | '/api/xrpc/dev.cocore.account.createApiKey'
     | '/api/xrpc/dev.cocore.account.deleteApiKey'
@@ -892,8 +915,6 @@ export interface FileRouteTypes {
     | '/api/xrpc/dev.cocore.devicePair.poll'
     | '/api/xrpc/dev.cocore.devicePair.start'
     | '/api/xrpc/dev.cocore.inference.dispatch'
-    | '/api/xrpc/dev.cocore.inference.status'
-    | '/api/xrpc/dev.cocore.inference.submit'
     | '/api/xrpc/dev.cocore.proxy.createRecord'
     | '/api/xrpc/dev.cocore.proxy.deleteRecord'
     | '/api/xrpc/dev.cocore.proxy.putRecord'
@@ -962,8 +983,12 @@ export interface FileRouteTypes {
     | '/api/agent/health'
     | '/api/agent/status'
     | '/api/agent/whoami'
+    | '/api/internal/migrate-sessions-to-appview'
     | '/api/internal/wipe'
     | '/api/internal/wipe-everything'
+    | '/api/pds/createRecord'
+    | '/api/pds/deleteRecord'
+    | '/api/pds/putRecord'
     | '/api/v1/models'
     | '/api/xrpc/dev.cocore.account.createApiKey'
     | '/api/xrpc/dev.cocore.account.deleteApiKey'
@@ -973,8 +998,6 @@ export interface FileRouteTypes {
     | '/api/xrpc/dev.cocore.devicePair.poll'
     | '/api/xrpc/dev.cocore.devicePair.start'
     | '/api/xrpc/dev.cocore.inference.dispatch'
-    | '/api/xrpc/dev.cocore.inference.status'
-    | '/api/xrpc/dev.cocore.inference.submit'
     | '/api/xrpc/dev.cocore.proxy.createRecord'
     | '/api/xrpc/dev.cocore.proxy.deleteRecord'
     | '/api/xrpc/dev.cocore.proxy.putRecord'
@@ -1015,8 +1038,12 @@ export interface RootRouteChildren {
   ApiAgentHealthRoute: typeof ApiAgentHealthRoute
   ApiAgentStatusRoute: typeof ApiAgentStatusRoute
   ApiAgentWhoamiRoute: typeof ApiAgentWhoamiRoute
+  ApiInternalMigrateSessionsToAppviewRoute: typeof ApiInternalMigrateSessionsToAppviewRoute
   ApiInternalWipeRoute: typeof ApiInternalWipeRoute
   ApiInternalWipeEverythingRoute: typeof ApiInternalWipeEverythingRoute
+  ApiPdsCreateRecordRoute: typeof ApiPdsCreateRecordRoute
+  ApiPdsDeleteRecordRoute: typeof ApiPdsDeleteRecordRoute
+  ApiPdsPutRecordRoute: typeof ApiPdsPutRecordRoute
   ApiV1ModelsRoute: typeof ApiV1ModelsRoute
   ApiXrpcDevDotcocoreDotaccountDotcreateApiKeyRoute: typeof ApiXrpcDevDotcocoreDotaccountDotcreateApiKeyRoute
   ApiXrpcDevDotcocoreDotaccountDotdeleteApiKeyRoute: typeof ApiXrpcDevDotcocoreDotaccountDotdeleteApiKeyRoute
@@ -1026,8 +1053,6 @@ export interface RootRouteChildren {
   ApiXrpcDevDotcocoreDotdevicePairDotpollRoute: typeof ApiXrpcDevDotcocoreDotdevicePairDotpollRoute
   ApiXrpcDevDotcocoreDotdevicePairDotstartRoute: typeof ApiXrpcDevDotcocoreDotdevicePairDotstartRoute
   ApiXrpcDevDotcocoreDotinferenceDotdispatchRoute: typeof ApiXrpcDevDotcocoreDotinferenceDotdispatchRoute
-  ApiXrpcDevDotcocoreDotinferenceDotstatusRoute: typeof ApiXrpcDevDotcocoreDotinferenceDotstatusRoute
-  ApiXrpcDevDotcocoreDotinferenceDotsubmitRoute: typeof ApiXrpcDevDotcocoreDotinferenceDotsubmitRoute
   ApiXrpcDevDotcocoreDotproxyDotcreateRecordRoute: typeof ApiXrpcDevDotcocoreDotproxyDotcreateRecordRoute
   ApiXrpcDevDotcocoreDotproxyDotdeleteRecordRoute: typeof ApiXrpcDevDotcocoreDotproxyDotdeleteRecordRoute
   ApiXrpcDevDotcocoreDotproxyDotputRecordRoute: typeof ApiXrpcDevDotcocoreDotproxyDotputRecordRoute
@@ -1332,20 +1357,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiXrpcDevDotcocoreDotproxyDotcreateRecordRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/xrpc/dev.cocore.inference.submit': {
-      id: '/api/xrpc/dev.cocore.inference.submit'
-      path: '/api/xrpc/dev.cocore.inference.submit'
-      fullPath: '/api/xrpc/dev.cocore.inference.submit'
-      preLoaderRoute: typeof ApiXrpcDevDotcocoreDotinferenceDotsubmitRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/xrpc/dev.cocore.inference.status': {
-      id: '/api/xrpc/dev.cocore.inference.status'
-      path: '/api/xrpc/dev.cocore.inference.status'
-      fullPath: '/api/xrpc/dev.cocore.inference.status'
-      preLoaderRoute: typeof ApiXrpcDevDotcocoreDotinferenceDotstatusRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/xrpc/dev.cocore.inference.dispatch': {
       id: '/api/xrpc/dev.cocore.inference.dispatch'
       path: '/api/xrpc/dev.cocore.inference.dispatch'
@@ -1409,6 +1420,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1ModelsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/pds/putRecord': {
+      id: '/api/pds/putRecord'
+      path: '/api/pds/putRecord'
+      fullPath: '/api/pds/putRecord'
+      preLoaderRoute: typeof ApiPdsPutRecordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/pds/deleteRecord': {
+      id: '/api/pds/deleteRecord'
+      path: '/api/pds/deleteRecord'
+      fullPath: '/api/pds/deleteRecord'
+      preLoaderRoute: typeof ApiPdsDeleteRecordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/pds/createRecord': {
+      id: '/api/pds/createRecord'
+      path: '/api/pds/createRecord'
+      fullPath: '/api/pds/createRecord'
+      preLoaderRoute: typeof ApiPdsCreateRecordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/internal/wipe-everything': {
       id: '/api/internal/wipe-everything'
       path: '/api/internal/wipe-everything'
@@ -1421,6 +1453,13 @@ declare module '@tanstack/react-router' {
       path: '/api/internal/wipe'
       fullPath: '/api/internal/wipe'
       preLoaderRoute: typeof ApiInternalWipeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/internal/migrate-sessions-to-appview': {
+      id: '/api/internal/migrate-sessions-to-appview'
+      path: '/api/internal/migrate-sessions-to-appview'
+      fullPath: '/api/internal/migrate-sessions-to-appview'
+      preLoaderRoute: typeof ApiInternalMigrateSessionsToAppviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/agent/whoami': {
@@ -1738,8 +1777,13 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentHealthRoute: ApiAgentHealthRoute,
   ApiAgentStatusRoute: ApiAgentStatusRoute,
   ApiAgentWhoamiRoute: ApiAgentWhoamiRoute,
+  ApiInternalMigrateSessionsToAppviewRoute:
+    ApiInternalMigrateSessionsToAppviewRoute,
   ApiInternalWipeRoute: ApiInternalWipeRoute,
   ApiInternalWipeEverythingRoute: ApiInternalWipeEverythingRoute,
+  ApiPdsCreateRecordRoute: ApiPdsCreateRecordRoute,
+  ApiPdsDeleteRecordRoute: ApiPdsDeleteRecordRoute,
+  ApiPdsPutRecordRoute: ApiPdsPutRecordRoute,
   ApiV1ModelsRoute: ApiV1ModelsRoute,
   ApiXrpcDevDotcocoreDotaccountDotcreateApiKeyRoute:
     ApiXrpcDevDotcocoreDotaccountDotcreateApiKeyRoute,
@@ -1757,10 +1801,6 @@ const rootRouteChildren: RootRouteChildren = {
     ApiXrpcDevDotcocoreDotdevicePairDotstartRoute,
   ApiXrpcDevDotcocoreDotinferenceDotdispatchRoute:
     ApiXrpcDevDotcocoreDotinferenceDotdispatchRoute,
-  ApiXrpcDevDotcocoreDotinferenceDotstatusRoute:
-    ApiXrpcDevDotcocoreDotinferenceDotstatusRoute,
-  ApiXrpcDevDotcocoreDotinferenceDotsubmitRoute:
-    ApiXrpcDevDotcocoreDotinferenceDotsubmitRoute,
   ApiXrpcDevDotcocoreDotproxyDotcreateRecordRoute:
     ApiXrpcDevDotcocoreDotproxyDotcreateRecordRoute,
   ApiXrpcDevDotcocoreDotproxyDotdeleteRecordRoute:
