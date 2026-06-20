@@ -133,9 +133,36 @@ fn list() -> Result<()> {
         println!(
             "No models configured (COCORE_INFERENCE_MODELS empty or unset). The agent will load only the stub engine."
         );
-    } else {
-        for m in current {
-            println!("{m}");
+        return Ok(());
+    }
+    for m in &current {
+        println!("{m}");
+    }
+    // Resource-budget summary — the CLI mirror of the tray meter, derived
+    // from the same pricing::budget_report so the green/yellow/red verdict
+    // is identical everywhere.
+    let ram_gb = system_profile::collect().ram_gb;
+    if ram_gb > 0 {
+        let report = pricing::budget_report(&current, ram_gb);
+        println!(
+            "\nPinned ~{}GB · reserved for you ~{}GB · this Mac {}GB",
+            report.used_gb, report.reserve_gb, report.total_gb
+        );
+        match report.status {
+            pricing::BudgetStatus::Comfortable => {
+                println!("OK: comfortable — plenty of headroom for your own apps.");
+            }
+            pricing::BudgetStatus::Tight => {
+                println!(
+                    "WARN: tight — these fit, but leave little for you; this Mac may get sluggish while you work. Drop one or stagger their hours."
+                );
+            }
+            pricing::BudgetStatus::Oversubscribed => {
+                println!(
+                    "WARN: oversubscribed — the agent will drop the largest to fit at startup: {}",
+                    report.dropped.join(", ")
+                );
+            }
         }
     }
     Ok(())
