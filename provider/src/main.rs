@@ -1451,6 +1451,25 @@ fn build_engines(
         kept
     };
 
+    // Headroom advisory (does NOT drop anything — the hard guard above
+    // already kept the set within total RAM). If the kept set leaves less
+    // than the user reserve free, the Mac may get sluggish under the
+    // owner's own work; surface that the same way the tray meter does.
+    if !ignore_ram_floor {
+        let report = cocore_provider::pricing::budget_report(&configured, ram_gb);
+        if matches!(
+            report.status,
+            cocore_provider::pricing::BudgetStatus::Tight
+        ) {
+            tracing::warn!(
+                used_gb = report.used_gb,
+                reserve_gb = report.reserve_gb,
+                ram_gb = report.total_gb,
+                "pinned models fit but leave little headroom for your own apps — this Mac may get sluggish while you use it. Drop one or stagger their hours."
+            );
+        }
+    }
+
     let mut failed: Vec<String> = vec![];
     let mut saw_venv_missing = false;
     let mut last_err: Option<String> = None;
