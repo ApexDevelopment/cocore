@@ -27,7 +27,7 @@ ENV="cocore-pr-$PR"
 
 # Railway dashboard service names (CLI `--service` is case-sensitive).
 CLIENT_SERVICE="${RAILWAY_CLIENT_SERVICE:-Client}"
-SERVICES_SERVICE="${RAILWAY_SERVICES_SERVICE:-Services}"
+SERVICES_SERVICE="${RAILWAY_SERVICES_SERVICE:-AppView}"
 
 CONSOLE_URL="https://client-$ENV.up.railway.app"
 ADVISOR_URL="https://advisor-$ENV.up.railway.app" # HTTP base (server-side /providers, /jobs)
@@ -53,7 +53,7 @@ except Exception: pass"
 
 bold "==> configuring $ENV"
 
-# Idempotency guard: if Services already targets its own DID, this env is
+# Idempotency guard: if AppView already targets its own DID, this env is
 # configured — skip (no var writes, no redeploy). Lets the CI workflow run on
 # every push harmlessly; it only acts on a freshly cloned env. Override with
 # FORCE=1 to reconfigure regardless.
@@ -62,9 +62,9 @@ if [[ "${FORCE:-0}" != "1" && "$(get "$SERVICES_SERVICE" COCORE_APPVIEW_DID)" ==
   exit 0
 fi
 
-# Shared secrets that must be IDENTICAL across Client + Services in this env.
+# Shared secrets that must be IDENTICAL across Client + AppView in this env.
 # The AppView OAuth key is cloned from prod (present on Client); copy it to
-# Services. The internal secret isn't cloned — reuse Client's if it has one,
+# AppView. The internal secret isn't cloned — reuse Client's if it has one,
 # else mint a fresh one for this env.
 KEY="$(get "$CLIENT_SERVICE" ATPROTO_PRIVATE_KEY_JWK)"
 [[ -n "$KEY" ]] || { echo "ERROR: $ENV $CLIENT_SERVICE has no ATPROTO_PRIVATE_KEY_JWK (clone incomplete)" >&2; exit 1; }
@@ -73,7 +73,7 @@ SECRET="$(get "$CLIENT_SERVICE" COCORE_INTERNAL_SECRET)"
 [[ -n "$SECRET" ]] || SECRET="$(openssl rand -hex 32)"
 note "secrets resolved (OAuth key + internal secret)"
 
-# Client: own public URLs + the Services DID it service-auths against.
+# Client: own public URLs + the AppView DID it service-auths against.
 railway variables --project "$PROJECT" --service "$CLIENT_SERVICE" --environment "$ENV" --skip-deploys \
   --set "COCORE_ADVISOR_URL=$ADVISOR_URL" \
   --set "COCORE_APPVIEW_DID=$SERVICES_DID" \
@@ -84,7 +84,7 @@ railway variables --project "$PROJECT" --service "$CLIENT_SERVICE" --environment
   --set "BETTER_AUTH_URL=$CONSOLE_URL" >/dev/null
 note "$CLIENT_SERVICE vars set"
 
-# Services (AppView): own DID, the Client it points back at, OAuth key, advisor.
+#  (AppView): own DID, the Client it points back at, OAuth key, advisor.
 railway variables --project "$PROJECT" --service "$SERVICES_SERVICE" --environment "$ENV" --skip-deploys \
   --set "ATPROTO_BASE_URL=$CONSOLE_URL" \
   --set "ATPROTO_PRIVATE_KEY_JWK=$KEY" \

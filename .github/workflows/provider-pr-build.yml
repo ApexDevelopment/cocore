@@ -59,7 +59,7 @@ jobs:
         id: stack
         # Railway's per-PR preview environment is named `cocore-pr-<N>` and its
         # service domains are deterministic: `<slug>-<env>.up.railway.app`.
-        # co/core Railway services: Client, Services, Advisor → client-/services-/advisor-.
+        # co/core Railway services: Client, AppView, Advisor → client-/services-/advisor-.
         if: github.event_name == 'pull_request'
         run: |
           ENV="cocore-pr-${{ github.event.pull_request.number }}"
