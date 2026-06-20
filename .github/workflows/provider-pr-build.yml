@@ -55,6 +55,21 @@ jobs:
           key: cargo-mac-arm64-${{ hashFiles('provider/Cargo.lock') }}
           restore-keys: cargo-mac-arm64-
 
+      - name: Resolve this PR's stack URLs
+        id: stack
+        # Railway's per-PR preview environment is named `cocore-pr-<N>` and its
+        # service domains are deterministic: `<service>-<env>.up.railway.app`.
+        # So we can target this PR's console + advisor straight from the PR
+        # number — no Railway token, works on fork PRs too. (If Railway ever
+        # appends a collision suffix to a PR domain, switch this to a
+        # `railway variables --json` lookup of RAILWAY_PUBLIC_DOMAIN.)
+        if: github.event_name == 'pull_request'
+        run: |
+          ENV="cocore-pr-${{ github.event.pull_request.number }}"
+          echo "console_url=https://console-$ENV.up.railway.app" >> "$GITHUB_OUTPUT"
+          echo "advisor_url=wss://advisor-$ENV.up.railway.app/v1/agent" >> "$GITHUB_OUTPUT"
+          echo "Wiring app to PR stack: console-$ENV / advisor-$ENV"
+
       - name: Build menu-bar app + CLI (ad-hoc signed)
         # build-mac-app.sh runs `swift build` for provider-shell, assembles
         # cocore.app (icon + Info.plist), (re)builds the cocore release CLI
@@ -62,6 +77,11 @@ jobs:
         # COCORE_SIGN_ID=- forces ad-hoc signing — no Developer ID / notary
         # secrets in CI, so the app runs locally but Gatekeeper warns on
         # first open (the PR comment explains how to get past it).
+        # COCORE_CONSOLE_URL / COCORE_ADVISOR_URL bake this PR's stack into the
+        # app's Info.plist (empty on workflow_dispatch → the app defaults to prod).
+        env:
+          COCORE_CONSOLE_URL: ${{ steps.stack.outputs.console_url }}
+          COCORE_ADVISOR_URL: ${{ steps.stack.outputs.advisor_url }}
         run: COCORE_SIGN_ID=- bash scripts/build-mac-app.sh
 
       - name: Verify the CLI has no Python linkage
@@ -119,12 +139,16 @@ jobs:
             const sha = '${{ steps.vars.outputs.sha_short }}';
             const url = '${{ steps.upload.outputs.artifact-url }}';
             const name = '${{ steps.vars.outputs.artifact }}';
+            const consoleUrl = '${{ steps.stack.outputs.console_url }}';
+            const advisorUrl = '${{ steps.stack.outputs.advisor_url }}';
             const marker = '<!-- provider-pr-build -->';
             const body = [
               marker,
               '### 🛠️ Provider build (macOS arm64) — menu-bar app + CLI',
               '',
               `Built from \`${sha}\`. The tarball bundles **cocore.app** (the menu-bar/tray app) plus the bare \`cocore\` CLI.`,
+              '',
+              `🔌 **Pre-wired to this PR's stack** — the app defaults to \`${consoleUrl}\` + \`${advisorUrl}\` (overridable in Settings → Network).`,
               '',
               `**[⬇️ ${name}.tar.gz](${url})**`,
               '',
@@ -140,10 +164,10 @@ jobs:
               'xattr -dr com.apple.quarantine /Applications/cocore.app && open /Applications/cocore.app',
               '```',
               '',
-              'CLI only? Pair + serve against an environment:',
+              "CLI only? It's wired to this PR's stack too:",
               '```sh',
-              './bin/cocore agent pair  --console https://console-dev-7d3e.up.railway.app',
-              './bin/cocore agent serve --advisor wss://advisor-dev.up.railway.app/v1/agent',
+              `./bin/cocore agent pair  --console ${consoleUrl}`,
+              `./bin/cocore agent serve --advisor ${advisorUrl}`,
               '```',
             ].join('\n');
             const { owner, repo } = context.repo;
