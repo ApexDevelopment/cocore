@@ -49,7 +49,7 @@ export const ApiDocsRequestPanel = memo(function RequestPanel({
 }: {
   entry: ApiDocsCatalogEntry;
 }) {
-  const { fixtures, tagOptions, signedIn, sessionDid, consoleBaseUrl } =
+  const { fixtures, tagOptions, signedIn, sessionDid, appviewBaseUrl, consoleBaseUrl } =
     useApiDocsPageContext();
   const controls = useMemo(() => apiDocsParamControls(entry, signedIn), [entry, signedIn]);
 
@@ -75,14 +75,12 @@ export const ApiDocsRequestPanel = memo(function RequestPanel({
   const useSessionAuth = signedIn && apiDocsUsesSessionAuth(entry);
 
   const curl = useMemo(() => {
-    // Both AppView (`/xrpc`) and console (`/api/xrpc`) methods are served
-    // from the console origin — the console reverse-proxies `/xrpc/*` to the
-    // AppView — so the public base URL is always the console's own origin.
-    return buildApiDocsCurl(entry, consoleBaseUrl, fixtures, {
+    const base = entry.host === "console" ? consoleBaseUrl : appviewBaseUrl;
+    return buildApiDocsCurl(entry, base, fixtures, {
       params: effectiveParams,
       bearerPlaceholder: useSessionAuth,
     });
-  }, [entry, fixtures, effectiveParams, useSessionAuth, consoleBaseUrl]);
+  }, [entry, fixtures, effectiveParams, useSessionAuth, appviewBaseUrl, consoleBaseUrl]);
 
   const { mutate, isPending } = useMutation({
     mutationFn: () =>

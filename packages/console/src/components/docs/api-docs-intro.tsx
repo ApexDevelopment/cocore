@@ -9,8 +9,8 @@ import { useApiDocsPageContext } from "./api-docs-fixtures-context.tsx";
 import { docsStyles } from "./docs-page.stylex.tsx";
 
 export function ApiDocsIntro() {
-  const { consoleBaseUrl, appviewDid } = useApiDocsPageContext();
-  const xrpcBaseUrl = `${consoleBaseUrl.replace(/\/$/, "")}/xrpc`;
+  const { appviewBaseUrl, appviewDid } = useApiDocsPageContext();
+  const xrpcBaseUrl = `${appviewBaseUrl.replace(/\/$/, "")}/xrpc`;
   return (
     <>
       <div {...stylex.props(docsStyles.masthead)}>

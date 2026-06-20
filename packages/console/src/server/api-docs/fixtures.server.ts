@@ -84,16 +84,18 @@ export async function loadApiDocsFixturesAsync(): Promise<ApiDocsFixtures> {
 export type ApiDocsPageData = {
   fixtures: ApiDocsFixtures;
   tagOptions: Array<ApiDocsTagOption>;
-  /** Public console origin, resolved on the server. Curl examples target it
-   *  (the console reverse-proxies `/xrpc/*` to the AppView), so the internal
-   *  `COCORE_APPVIEW_URL` is never exposed to the browser. */
+  /** Public AppView origin (e.g. https://appview.cocore.dev), resolved on the
+   *  server from the AppView's service DID — NOT the internal
+   *  `COCORE_APPVIEW_URL` the console uses for private server-to-server calls.
+   *  Curl examples and the run-it-yourself base must point at the public host. */
+  appviewBaseUrl: string;
   consoleBaseUrl: string;
   /** AppView service DID, resolved on the server (COCORE_APPVIEW_DID in prod). */
   appviewDid: string;
 };
 
 /** did:web for the AppView host. Prefers the configured DID; otherwise
- *  derives it from the public AppView origin (port encoded as %3A). */
+ *  derives it from the AppView origin (port encoded as %3A). */
 function resolveAppviewDid(base: string): string {
   const configured = process.env["COCORE_APPVIEW_DID"]?.trim();
   if (configured) return configured;
@@ -104,14 +106,30 @@ function resolveAppviewDid(base: string): string {
   }
 }
 
-/** Fixtures for the /docs/api page loader. Viewer-dependent, so not cached
- *  here — `loadApiDocsFixturesAsync` owns the per-viewer TTL cache. */
+/** Public, externally-reachable AppView origin for the docs. Derived from the
+ *  service DID (`did:web:appview.cocore.dev` → https://appview.cocore.dev) so
+ *  we never surface the private Railway URL in `COCORE_APPVIEW_URL`. Falls back
+ *  to that configured URL in dev, where there's no public domain anyway. */
+function appviewPublicUrl(): string {
+  const did = process.env["COCORE_APPVIEW_DID"]?.trim();
+  if (did?.startsWith("did:web:")) {
+    // Bare host[:port]; a `%3A`-encoded port decodes back to ':'.
+    const host = decodeURIComponent(did.slice("did:web:".length));
+    const scheme = /^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https";
+    return `${scheme}://${host}`;
+  }
+  return appviewBaseUrl();
+}
+
+/** Fixtures for the /docs/api page loader. */
 export async function loadApiDocsPageData(): Promise<ApiDocsPageData> {
   const fixtures = await loadApiDocsFixturesAsync();
+  const appview = appviewPublicUrl();
   return {
     fixtures,
     tagOptions: [],
+    appviewBaseUrl: appview,
     consoleBaseUrl: consoleBaseUrlClient(),
-    appviewDid: resolveAppviewDid(appviewBaseUrl()),
+    appviewDid: resolveAppviewDid(appview),
   };
 }
