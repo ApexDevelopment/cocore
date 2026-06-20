@@ -201,6 +201,7 @@ export async function handleModelsDirectory(request: Request): Promise<Response>
         inputPricePerMTok: m.inputPricePerMTok,
         outputPricePerMTok: m.outputPricePerMTok,
         currency: m.currency,
+        recommended: m.recommended,
       })),
       generatedAt: directory.generatedAt,
       appviewUnreachable: directory.appviewUnreachable,

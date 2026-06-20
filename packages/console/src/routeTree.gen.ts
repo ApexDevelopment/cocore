@@ -20,6 +20,7 @@ import { Route as XrpcDevDotcocoreDotaccountDotrevokeApiKeyRouteImport } from '.
 import { Route as XrpcDevDotcocoreDotaccountDotlistApiKeysRouteImport } from './routes/xrpc.dev[.]cocore[.]account[.]listApiKeys'
 import { Route as XrpcDevDotcocoreDotaccountDotdeleteApiKeyRouteImport } from './routes/xrpc.dev[.]cocore[.]account[.]deleteApiKey'
 import { Route as XrpcDevDotcocoreDotaccountDotcreateApiKeyRouteImport } from './routes/xrpc.dev[.]cocore[.]account[.]createApiKey'
+import { Route as V1RecommendedModelsRouteImport } from './routes/v1.recommended-models'
 import { Route as V1ModelsRouteImport } from './routes/v1.models'
 import { Route as LexiconsNsidRouteImport } from './routes/lexicons.$nsid'
 import { Route as ExchangeDidDotjsonRouteImport } from './routes/exchange.did[.]json'
@@ -87,6 +88,9 @@ import { Route as ApiAuthAtprotoMetadataDotjsonRouteImport } from './routes/api.
 import { Route as ApiAuthAtprotoJwksDotjsonRouteImport } from './routes/api.auth.atproto.jwks[.]json'
 import { Route as ApiAuthAtprotoCallbackRouteImport } from './routes/api.auth.atproto.callback'
 import { Route as ApiAuthAtprotoAuthorizeRouteImport } from './routes/api.auth.atproto.authorize'
+import { Route as ApiAgentMdmPushAttestationRouteImport } from './routes/api/agent.mdm.push-attestation'
+import { Route as ApiAgentMdmEnrollProfileRouteImport } from './routes/api/agent.mdm.enroll-profile'
+import { Route as ApiAgentMdmAttestationChainRouteImport } from './routes/api/agent.mdm.attestation-chain'
 import { Route as DocsHeaderLayoutDocsInferenceAuthenticationRouteImport } from './routes/_docs-header-layout.docs.inference.authentication'
 import { Route as DocsHeaderLayoutDocsInferenceSlugRouteImport } from './routes/_docs-header-layout.docs.inference.$slug'
 import { Route as ApiV1PrivateChatCompletionsRouteImport } from './routes/api.v1.private.chat.completions'
@@ -148,6 +152,11 @@ const XrpcDevDotcocoreDotaccountDotcreateApiKeyRoute =
     path: '/xrpc/dev.cocore.account.createApiKey',
     getParentRoute: () => rootRouteImport,
   } as any)
+const V1RecommendedModelsRoute = V1RecommendedModelsRouteImport.update({
+  id: '/v1/recommended-models',
+  path: '/v1/recommended-models',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const V1ModelsRoute = V1ModelsRouteImport.update({
   id: '/v1/models',
   path: '/v1/models',
@@ -508,6 +517,24 @@ const ApiAuthAtprotoAuthorizeRoute = ApiAuthAtprotoAuthorizeRouteImport.update({
   path: '/api/auth/atproto/authorize',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAgentMdmPushAttestationRoute =
+  ApiAgentMdmPushAttestationRouteImport.update({
+    id: '/api/agent/mdm/push-attestation',
+    path: '/api/agent/mdm/push-attestation',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentMdmEnrollProfileRoute =
+  ApiAgentMdmEnrollProfileRouteImport.update({
+    id: '/api/agent/mdm/enroll-profile',
+    path: '/api/agent/mdm/enroll-profile',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentMdmAttestationChainRoute =
+  ApiAgentMdmAttestationChainRouteImport.update({
+    id: '/api/agent/mdm/attestation-chain',
+    path: '/api/agent/mdm/attestation-chain',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const DocsHeaderLayoutDocsInferenceAuthenticationRoute =
   DocsHeaderLayoutDocsInferenceAuthenticationRouteImport.update({
     id: '/authentication',
@@ -555,6 +582,7 @@ export interface FileRoutesByFullPath {
   '/exchange/did.json': typeof ExchangeDidDotjsonRoute
   '/lexicons/$nsid': typeof LexiconsNsidRoute
   '/v1/models': typeof V1ModelsRoute
+  '/v1/recommended-models': typeof V1RecommendedModelsRoute
   '/xrpc/dev.cocore.account.createApiKey': typeof XrpcDevDotcocoreDotaccountDotcreateApiKeyRoute
   '/xrpc/dev.cocore.account.deleteApiKey': typeof XrpcDevDotcocoreDotaccountDotdeleteApiKeyRoute
   '/xrpc/dev.cocore.account.listApiKeys': typeof XrpcDevDotcocoreDotaccountDotlistApiKeysRoute
@@ -597,6 +625,9 @@ export interface FileRoutesByFullPath {
   '/machines/': typeof HeaderLayoutMachinesIndexRoute
   '/docs/inference/$slug': typeof DocsHeaderLayoutDocsInferenceSlugRoute
   '/docs/inference/authentication': typeof DocsHeaderLayoutDocsInferenceAuthenticationRoute
+  '/api/agent/mdm/attestation-chain': typeof ApiAgentMdmAttestationChainRoute
+  '/api/agent/mdm/enroll-profile': typeof ApiAgentMdmEnrollProfileRoute
+  '/api/agent/mdm/push-attestation': typeof ApiAgentMdmPushAttestationRoute
   '/api/auth/atproto/authorize': typeof ApiAuthAtprotoAuthorizeRoute
   '/api/auth/atproto/callback': typeof ApiAuthAtprotoCallbackRoute
   '/api/auth/atproto/jwks.json': typeof ApiAuthAtprotoJwksDotjsonRoute
@@ -636,6 +667,7 @@ export interface FileRoutesByTo {
   '/exchange/did.json': typeof ExchangeDidDotjsonRoute
   '/lexicons/$nsid': typeof LexiconsNsidRoute
   '/v1/models': typeof V1ModelsRoute
+  '/v1/recommended-models': typeof V1RecommendedModelsRoute
   '/xrpc/dev.cocore.account.createApiKey': typeof XrpcDevDotcocoreDotaccountDotcreateApiKeyRoute
   '/xrpc/dev.cocore.account.deleteApiKey': typeof XrpcDevDotcocoreDotaccountDotdeleteApiKeyRoute
   '/xrpc/dev.cocore.account.listApiKeys': typeof XrpcDevDotcocoreDotaccountDotlistApiKeysRoute
@@ -677,6 +709,9 @@ export interface FileRoutesByTo {
   '/machines': typeof HeaderLayoutMachinesIndexRoute
   '/docs/inference/$slug': typeof DocsHeaderLayoutDocsInferenceSlugRoute
   '/docs/inference/authentication': typeof DocsHeaderLayoutDocsInferenceAuthenticationRoute
+  '/api/agent/mdm/attestation-chain': typeof ApiAgentMdmAttestationChainRoute
+  '/api/agent/mdm/enroll-profile': typeof ApiAgentMdmEnrollProfileRoute
+  '/api/agent/mdm/push-attestation': typeof ApiAgentMdmPushAttestationRoute
   '/api/auth/atproto/authorize': typeof ApiAuthAtprotoAuthorizeRoute
   '/api/auth/atproto/callback': typeof ApiAuthAtprotoCallbackRoute
   '/api/auth/atproto/jwks.json': typeof ApiAuthAtprotoJwksDotjsonRoute
@@ -718,6 +753,7 @@ export interface FileRoutesById {
   '/exchange/did.json': typeof ExchangeDidDotjsonRoute
   '/lexicons/$nsid': typeof LexiconsNsidRoute
   '/v1/models': typeof V1ModelsRoute
+  '/v1/recommended-models': typeof V1RecommendedModelsRoute
   '/xrpc/dev.cocore.account.createApiKey': typeof XrpcDevDotcocoreDotaccountDotcreateApiKeyRoute
   '/xrpc/dev.cocore.account.deleteApiKey': typeof XrpcDevDotcocoreDotaccountDotdeleteApiKeyRoute
   '/xrpc/dev.cocore.account.listApiKeys': typeof XrpcDevDotcocoreDotaccountDotlistApiKeysRoute
@@ -761,6 +797,9 @@ export interface FileRoutesById {
   '/_header-layout/machines/': typeof HeaderLayoutMachinesIndexRoute
   '/_docs-header-layout/docs/inference/$slug': typeof DocsHeaderLayoutDocsInferenceSlugRoute
   '/_docs-header-layout/docs/inference/authentication': typeof DocsHeaderLayoutDocsInferenceAuthenticationRoute
+  '/api/agent/mdm/attestation-chain': typeof ApiAgentMdmAttestationChainRoute
+  '/api/agent/mdm/enroll-profile': typeof ApiAgentMdmEnrollProfileRoute
+  '/api/agent/mdm/push-attestation': typeof ApiAgentMdmPushAttestationRoute
   '/api/auth/atproto/authorize': typeof ApiAuthAtprotoAuthorizeRoute
   '/api/auth/atproto/callback': typeof ApiAuthAtprotoCallbackRoute
   '/api/auth/atproto/jwks.json': typeof ApiAuthAtprotoJwksDotjsonRoute
@@ -802,6 +841,7 @@ export interface FileRouteTypes {
     | '/exchange/did.json'
     | '/lexicons/$nsid'
     | '/v1/models'
+    | '/v1/recommended-models'
     | '/xrpc/dev.cocore.account.createApiKey'
     | '/xrpc/dev.cocore.account.deleteApiKey'
     | '/xrpc/dev.cocore.account.listApiKeys'
@@ -844,6 +884,9 @@ export interface FileRouteTypes {
     | '/machines/'
     | '/docs/inference/$slug'
     | '/docs/inference/authentication'
+    | '/api/agent/mdm/attestation-chain'
+    | '/api/agent/mdm/enroll-profile'
+    | '/api/agent/mdm/push-attestation'
     | '/api/auth/atproto/authorize'
     | '/api/auth/atproto/callback'
     | '/api/auth/atproto/jwks.json'
@@ -883,6 +926,7 @@ export interface FileRouteTypes {
     | '/exchange/did.json'
     | '/lexicons/$nsid'
     | '/v1/models'
+    | '/v1/recommended-models'
     | '/xrpc/dev.cocore.account.createApiKey'
     | '/xrpc/dev.cocore.account.deleteApiKey'
     | '/xrpc/dev.cocore.account.listApiKeys'
@@ -924,6 +968,9 @@ export interface FileRouteTypes {
     | '/machines'
     | '/docs/inference/$slug'
     | '/docs/inference/authentication'
+    | '/api/agent/mdm/attestation-chain'
+    | '/api/agent/mdm/enroll-profile'
+    | '/api/agent/mdm/push-attestation'
     | '/api/auth/atproto/authorize'
     | '/api/auth/atproto/callback'
     | '/api/auth/atproto/jwks.json'
@@ -964,6 +1011,7 @@ export interface FileRouteTypes {
     | '/exchange/did.json'
     | '/lexicons/$nsid'
     | '/v1/models'
+    | '/v1/recommended-models'
     | '/xrpc/dev.cocore.account.createApiKey'
     | '/xrpc/dev.cocore.account.deleteApiKey'
     | '/xrpc/dev.cocore.account.listApiKeys'
@@ -1007,6 +1055,9 @@ export interface FileRouteTypes {
     | '/_header-layout/machines/'
     | '/_docs-header-layout/docs/inference/$slug'
     | '/_docs-header-layout/docs/inference/authentication'
+    | '/api/agent/mdm/attestation-chain'
+    | '/api/agent/mdm/enroll-profile'
+    | '/api/agent/mdm/push-attestation'
     | '/api/auth/atproto/authorize'
     | '/api/auth/atproto/callback'
     | '/api/auth/atproto/jwks.json'
@@ -1029,6 +1080,7 @@ export interface RootRouteChildren {
   ExchangeDidDotjsonRoute: typeof ExchangeDidDotjsonRoute
   LexiconsNsidRoute: typeof LexiconsNsidRoute
   V1ModelsRoute: typeof V1ModelsRoute
+  V1RecommendedModelsRoute: typeof V1RecommendedModelsRoute
   XrpcDevDotcocoreDotaccountDotcreateApiKeyRoute: typeof XrpcDevDotcocoreDotaccountDotcreateApiKeyRoute
   XrpcDevDotcocoreDotaccountDotdeleteApiKeyRoute: typeof XrpcDevDotcocoreDotaccountDotdeleteApiKeyRoute
   XrpcDevDotcocoreDotaccountDotlistApiKeysRoute: typeof XrpcDevDotcocoreDotaccountDotlistApiKeysRoute
@@ -1057,6 +1109,9 @@ export interface RootRouteChildren {
   ApiXrpcDevDotcocoreDotproxyDotdeleteRecordRoute: typeof ApiXrpcDevDotcocoreDotproxyDotdeleteRecordRoute
   ApiXrpcDevDotcocoreDotproxyDotputRecordRoute: typeof ApiXrpcDevDotcocoreDotproxyDotputRecordRoute
   V1ChatCompletionsRoute: typeof V1ChatCompletionsRoute
+  ApiAgentMdmAttestationChainRoute: typeof ApiAgentMdmAttestationChainRoute
+  ApiAgentMdmEnrollProfileRoute: typeof ApiAgentMdmEnrollProfileRoute
+  ApiAgentMdmPushAttestationRoute: typeof ApiAgentMdmPushAttestationRoute
   ApiAuthAtprotoAuthorizeRoute: typeof ApiAuthAtprotoAuthorizeRoute
   ApiAuthAtprotoCallbackRoute: typeof ApiAuthAtprotoCallbackRoute
   ApiAuthAtprotoJwksDotjsonRoute: typeof ApiAuthAtprotoJwksDotjsonRoute
@@ -1145,6 +1200,13 @@ declare module '@tanstack/react-router' {
       path: '/xrpc/dev.cocore.account.createApiKey'
       fullPath: '/xrpc/dev.cocore.account.createApiKey'
       preLoaderRoute: typeof XrpcDevDotcocoreDotaccountDotcreateApiKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/recommended-models': {
+      id: '/v1/recommended-models'
+      path: '/v1/recommended-models'
+      fullPath: '/v1/recommended-models'
+      preLoaderRoute: typeof V1RecommendedModelsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/models': {
@@ -1616,6 +1678,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthAtprotoAuthorizeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/mdm/push-attestation': {
+      id: '/api/agent/mdm/push-attestation'
+      path: '/api/agent/mdm/push-attestation'
+      fullPath: '/api/agent/mdm/push-attestation'
+      preLoaderRoute: typeof ApiAgentMdmPushAttestationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/mdm/enroll-profile': {
+      id: '/api/agent/mdm/enroll-profile'
+      path: '/api/agent/mdm/enroll-profile'
+      fullPath: '/api/agent/mdm/enroll-profile'
+      preLoaderRoute: typeof ApiAgentMdmEnrollProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/mdm/attestation-chain': {
+      id: '/api/agent/mdm/attestation-chain'
+      path: '/api/agent/mdm/attestation-chain'
+      fullPath: '/api/agent/mdm/attestation-chain'
+      preLoaderRoute: typeof ApiAgentMdmAttestationChainRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_docs-header-layout/docs/inference/authentication': {
       id: '/_docs-header-layout/docs/inference/authentication'
       path: '/authentication'
@@ -1764,6 +1847,7 @@ const rootRouteChildren: RootRouteChildren = {
   ExchangeDidDotjsonRoute: ExchangeDidDotjsonRoute,
   LexiconsNsidRoute: LexiconsNsidRoute,
   V1ModelsRoute: V1ModelsRoute,
+  V1RecommendedModelsRoute: V1RecommendedModelsRoute,
   XrpcDevDotcocoreDotaccountDotcreateApiKeyRoute:
     XrpcDevDotcocoreDotaccountDotcreateApiKeyRoute,
   XrpcDevDotcocoreDotaccountDotdeleteApiKeyRoute:
@@ -1808,6 +1892,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiXrpcDevDotcocoreDotproxyDotputRecordRoute:
     ApiXrpcDevDotcocoreDotproxyDotputRecordRoute,
   V1ChatCompletionsRoute: V1ChatCompletionsRoute,
+  ApiAgentMdmAttestationChainRoute: ApiAgentMdmAttestationChainRoute,
+  ApiAgentMdmEnrollProfileRoute: ApiAgentMdmEnrollProfileRoute,
+  ApiAgentMdmPushAttestationRoute: ApiAgentMdmPushAttestationRoute,
   ApiAuthAtprotoAuthorizeRoute: ApiAuthAtprotoAuthorizeRoute,
   ApiAuthAtprotoCallbackRoute: ApiAuthAtprotoCallbackRoute,
   ApiAuthAtprotoJwksDotjsonRoute: ApiAuthAtprotoJwksDotjsonRoute,

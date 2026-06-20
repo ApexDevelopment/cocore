@@ -30,6 +30,7 @@ import {
   type AppviewModelActivityResponse,
 } from "@/integrations/appview/appview.server.ts";
 import { cocoreConfig } from "@/lib/cocore-config.ts";
+import { RECOMMENDED_MODEL_IDS } from "@/lib/recommended-models.ts";
 
 interface PriceEntry {
   modelId?: string;
@@ -94,6 +95,11 @@ export interface ModelDirectoryEntry {
   /** Aggregate request + token totals across every machine that has
    *  served the model in each window. */
   activity: AppviewActivityStats;
+  /** True when this model id is part of the curated recommended
+   *  rotation (see src/lib/recommended-models.ts). Lets consumers
+   *  distinguish blessed/recommended models from legacy ones a
+   *  provider happens to advertise. Additive — never gates routing. */
+  recommended: boolean;
 }
 
 export interface ModelDirectoryResponse {
@@ -277,6 +283,7 @@ export async function buildModelDirectory(): Promise<ModelDirectoryResponse> {
           currency: null,
           freshestAt: null,
           activity: totalsFor(activity, modelId),
+          recommended: RECOMMENDED_MODEL_IDS.has(modelId),
         };
         byModel.set(modelId, entry);
       }

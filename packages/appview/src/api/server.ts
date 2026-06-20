@@ -461,6 +461,28 @@ export function buildAppviewHandler(store: Store, opts: BuildServerOptions = {})
         findings,
       });
     },
+    "/v1/known-good": (_req, res) => {
+      // Transparency endpoint: the blessed set of cdHashes the
+      // SDK/console can fetch instead of hardcoding the known-good
+      // list. Read-only, public. Sourced from COCORE_KNOWN_GOOD_CDHASHES
+      // (comma/whitespace-separated) for now — a future revision can
+      // back this with an indexed record without changing the wire
+      // shape. `updatedAt` is the server time the set was read.
+      //
+      // TODO(ops): when the known-good set becomes a published record
+      // (e.g. under cocore.dev's repo), source it from the index here
+      // and carry the record's own updatedAt instead of wall-clock.
+      const raw = process.env["COCORE_KNOWN_GOOD_CDHASHES"] ?? "";
+      const cdHashes = Array.from(
+        new Set(
+          raw
+            .split(/[\s,]+/)
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0),
+        ),
+      );
+      json(res, 200, { cdHashes, updatedAt: new Date().toISOString() });
+    },
     "/xrpc/dev.cocore.compute.verifySettlement": (_req, res, url) => {
       const uri = url.searchParams.get("uri");
       if (!uri) {
