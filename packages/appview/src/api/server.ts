@@ -109,6 +109,27 @@ function buildInternalAccountRouter(
         return ok({ key: out.key, secret: out.secret });
       }).pipe(Effect.withSpan("appview.internal.mintKey")),
     ),
+    // AppView half of the console's "reset connection" repair flow:
+    // revoke all of a DID's API keys + drop its OAuth session so the user
+    // can re-pair from a clean slate. (merged from main #33)
+    HttpRouter.post(
+      "/internal/account/reset-did",
+      Effect.gen(function* () {
+        if (!(yield* authorized)) return err(403, { error: "Forbidden" });
+        const parsed = yield* Effect.either(jsonBody);
+        if (parsed._tag === "Left") {
+          return err(400, { error: "InvalidRequest", message: "body must be JSON" });
+        }
+        const body = parsed.right as { did?: unknown };
+        if (typeof body.did !== "string" || !body.did.startsWith("did:")) {
+          return err(400, { error: "InvalidRequest", message: "did required" });
+        }
+        const keysRevoked = accountStore.revokeAllKeysForDid(body.did);
+        accountStore.deleteOAuthSession(body.did);
+        console.error(`appview: reset auth state for ${body.did} (${keysRevoked} keys revoked)`);
+        return ok({ ok: true, keysRevoked });
+      }).pipe(Effect.withSpan("appview.internal.resetDid")),
+    ),
   );
 }
 
