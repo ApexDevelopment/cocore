@@ -19,6 +19,7 @@ import {
 } from "@/components/api-docs/snippets.ts";
 import { modelDirectoryRouteQueryOptions } from "@/components/models/models.functions.ts";
 import { OperatorChip } from "@/components/profile/OperatorChip.tsx";
+import { Badge } from "@/design-system/badge";
 import { Button } from "@/design-system/button";
 import { CopyToClipboardButton } from "@/design-system/copy-to-clipboard-button";
 import { Flex } from "@/design-system/flex";
@@ -989,7 +990,7 @@ function ModelsPage() {
               {isStub(selected.modelId) ? (
                 <Body variant="secondary">
                   <strong>This is not a real model.</strong> <InlineCode>stub</InlineCode> is
-                  cocore&apos;s hello-world end-to-end test — every paired machine advertises it,
+                  co/core&apos;s hello-world end-to-end test — every paired machine advertises it,
                   every request routes through the exchange, every receipt gets signed, and you get
                   a canned response back. It exists so a new provider can pair, dispatch one
                   request, and confirm that their box is alive on the network without burning tokens
@@ -1094,6 +1095,15 @@ function ModelsPage() {
                               {mach.chip ? ` · ${mach.chip}` : ""}
                               {mach.ramGB != null ? `, ${mach.ramGB} GB` : ""}
                             </SmallBody>
+                            {mach.confidential ? (
+                              <Badge
+                                size="sm"
+                                variant="success"
+                                title="Hardware-attested confidential tier — the advisor verified this machine's signed posture against a known-good build. Your prompt is sealed so the operator can't read it."
+                              >
+                                🔒 Confidential
+                              </Badge>
+                            ) : null}
                           </td>
                           <td {...stylex.props(styles.td, isLast && styles.tdLastRow)}>
                             <OperatorChip

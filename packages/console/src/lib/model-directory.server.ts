@@ -32,6 +32,7 @@ import {
   type AppviewModelActivityResponse,
 } from "@/integrations/appview/appview.server.ts";
 import { cocoreConfig } from "@/lib/cocore-config.ts";
+import { RECOMMENDED_MODEL_IDS } from "@/lib/recommended-models.ts";
 
 interface PriceEntry {
   modelId?: string;
@@ -70,6 +71,11 @@ interface ModelMachine {
   ramGB: number | null;
   attestationPubKey: string | null;
   lastSeen: string | null;
+  /** True when the advisor currently routes this machine as
+   *  `attested-confidential` (hardware-attested + known-good build +
+   *  challenge-verified posture). Drives the "Confidential" badge.
+   *  Recomputed by the advisor; never the machine's self-asserted value. */
+  confidential: boolean;
   /** Host profile chip (display name + handle + avatar). null when
    *  the DID has no `dev.cocore.account.profile` record yet — the UI
    *  falls back to a shortened DID in that case. */
@@ -96,6 +102,11 @@ export interface ModelDirectoryEntry {
   /** Aggregate request + token totals across every machine that has
    *  served the model in each window. */
   activity: AppviewActivityStats;
+  /** True when this model id is part of the curated recommended
+   *  rotation (see src/lib/recommended-models.ts). Lets consumers
+   *  distinguish blessed/recommended models from legacy ones a
+   *  provider happens to advertise. Additive — never gates routing. */
+  recommended: boolean;
 }
 
 export interface ModelDirectoryResponse {
@@ -252,6 +263,11 @@ interface AdvisorProviderRow {
   attestedAt: string | null;
   active?: boolean;
   lastSeen?: string;
+  /** Recomputed routing tier from the advisor (WS-COORDINATOR): the
+   *  advisor flips a machine to "attested-confidential" only when its
+   *  cdHash is known-good AND its challenge-verified posture holds. */
+  trustTier?: string;
+  confidentialEligible?: boolean;
 }
 
 /** DIDs the advisor currently considers routable — attested and not
@@ -259,17 +275,25 @@ interface AdvisorProviderRow {
  *  plus the advisor registry's `active` gate. Returns null when the
  *  advisor is unreachable so callers can treat every indexed provider
  *  as offline rather than showing stale PDS records. */
-async function fetchAdvisorOnlineDids(): Promise<Map<string, string> | null> {
+interface AdvisorOnline {
+  lastSeen: string;
+  confidential: boolean;
+}
+
+async function fetchAdvisorOnlineDids(): Promise<Map<string, AdvisorOnline> | null> {
   const base = cocoreConfig().advisorUrl.replace(/\/$/, "");
   try {
     const r = await fetch(`${base}/providers`);
     if (!r.ok) return null;
     const list = (await r.json()) as AdvisorProviderRow[];
-    const online = new Map<string, string>();
+    const online = new Map<string, AdvisorOnline>();
     for (const p of list) {
       if (!p.attestedAt) continue;
       if (p.active === false) continue;
-      online.set(p.did, p.lastSeen ?? p.attestedAt);
+      online.set(p.did, {
+        lastSeen: p.lastSeen ?? p.attestedAt,
+        confidential: p.confidentialEligible === true || p.trustTier === "attested-confidential",
+      });
     }
     return online;
   } catch (reason) {
@@ -370,10 +394,12 @@ export async function buildModelDirectory(): Promise<ModelDirectoryResponse> {
           currency: null,
           freshestAt: null,
           activity: totalsFor(activity, modelId),
+          recommended: RECOMMENDED_MODEL_IDS.has(modelId),
         };
         byModel.set(modelId, entry);
       }
-      const seen = advisorOnline.get(did) ?? lastSeen;
+      const onlineInfo = advisorOnline.get(did);
+      const seen = onlineInfo?.lastSeen ?? lastSeen;
       const attestationPubKey = safeString(body.attestationPubKey);
       const machineKey = attestationPubKey ?? did;
       let machines = machinesByModel.get(modelId);
@@ -390,6 +416,7 @@ export async function buildModelDirectory(): Promise<ModelDirectoryResponse> {
           ramGB: safeNumber(body.ramGB),
           attestationPubKey,
           lastSeen: seen,
+          confidential: onlineInfo?.confidential ?? false,
           host: hostFor(did),
           activity: activityFor(activity, modelId, did),
         });

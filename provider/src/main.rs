@@ -322,7 +322,7 @@ async fn cmd_pair(console: &str) -> Result<()> {
     let pair = oauth::start_pair(console).await;
     match pair {
         Ok(p) => {
-            println!("Open this URL in any browser signed into the cocore console:");
+            println!("Open this URL in any browser signed into the co/core console:");
             println!("  {}", p.verification_uri);
             println!("Code (auto-filled by the URL above): {}", p.user_code);
             let session = oauth::poll_pair(console, &p.device_id).await?;
@@ -920,21 +920,44 @@ async fn cmd_serve(advisor_url: &str) -> Result<()> {
     let mut attestation_inputs =
         attestation::build_stub_inputs(&session.did, &enc.public_key_b64());
     attestation_inputs.mda_cert_chain = cocore_provider::mda_loader::try_load();
+    // Reflect the serving engine's confidential properties honestly: the
+    // confidential tier requires inference to run inside THIS measured binary
+    // (an in-process native engine), and pins the metallib the GPU kernels load.
+    // The subprocess/stub backends report neither, so this stays false/None
+    // until the native engine ships (WS-ENGINE).
+    attestation_inputs.in_process_backend = engines.entries().iter().any(|(_, e)| e.in_process());
+    attestation_inputs.metallib_hash = engines
+        .entries()
+        .iter()
+        .find_map(|(_, e)| e.metallib_hash());
+    attestation_inputs.engine_lib_hash = engines
+        .entries()
+        .iter()
+        .find_map(|(_, e)| e.engine_lib_hash());
+    // Echo the signed attestation's measured identity + tier on the Register
+    // frame so the advisor can compute confidential eligibility (accelerator
+    // only — the PDS attestation stays authoritative for client verification).
+    let mut register_cd_hash: Option<String> = None;
+    let mut register_tier: Option<String> = None;
     let attestation_ref: Option<StrongRef> = match attestation::build(attestation_inputs, &*signer)
     {
-        Ok(record) => match pds.publish_attestation(&record).await {
-            Ok(published) => {
-                tracing::info!(uri = %published.uri, "published attestation");
-                Some(StrongRef {
-                    uri: published.uri,
-                    cid: published.cid,
-                })
+        Ok(record) => {
+            register_cd_hash = record.cdHash.clone();
+            register_tier = Some(record.tier.clone());
+            match pds.publish_attestation(&record).await {
+                Ok(published) => {
+                    tracing::info!(uri = %published.uri, "published attestation");
+                    Some(StrongRef {
+                        uri: published.uri,
+                        cid: published.cid,
+                    })
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to publish attestation; receipts disabled");
+                    None
+                }
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "failed to publish attestation; receipts disabled");
-                None
-            }
-        },
+        }
         Err(e) => {
             tracing::warn!(error = %e, "failed to build attestation; receipts disabled");
             None
@@ -965,6 +988,16 @@ async fn cmd_serve(advisor_url: &str) -> Result<()> {
         // engine failed to load, so the central matchmaker can note a
         // degraded machine instead of just seeing a short supportedModels.
         engine_fault: provider_record.engineFault.clone(),
+        cd_hash: register_cd_hash,
+        tier: register_tier,
+        // The measured agent's APNs device token, when the push host registered
+        // one (confidential build + logged-in GUI session). Lets the advisor
+        // send the code-identity challenge that proves this exact binary is
+        // genuine. `None` everywhere else → those machines stay best-effort.
+        #[cfg(all(target_os = "macos", feature = "apns"))]
+        apns_device_token: cocore_provider::push_host::current_device_token(),
+        #[cfg(not(all(target_os = "macos", feature = "apns")))]
+        apns_device_token: None,
     };
     let attestation = attestation_ref.as_ref();
 
@@ -1313,6 +1346,32 @@ fn build_engines(
     let mut registry = cocore_provider::engines::EngineRegistry::new();
     registry.register("stub", std::sync::Arc::new(StubEngine));
 
+    // WS-ENGINE: the native in-process MLX engine (confidential tier). Opt-in
+    // and feature-gated so it never disrupts the subprocess path. Configure a
+    // model id + its local snapshot dir; the prompt is then served entirely
+    // inside the measured binary (flips inProcessBackend + metallibHash true).
+    #[cfg(feature = "native_mlx")]
+    if let (Ok(model), Ok(dir)) = (
+        std::env::var("COCORE_NATIVE_MLX_MODEL"),
+        std::env::var("COCORE_NATIVE_MLX_MODEL_DIR"),
+    ) {
+        use cocore_provider::engines::native_mlx::NativeMlxEngine;
+        use cocore_provider::engines::Engine;
+        match NativeMlxEngine::load(std::path::PathBuf::from(dir), None) {
+            Ok(engine) if engine.ready() => {
+                tracing::info!(model = %model, "loaded native in-process MLX engine (confidential-capable)");
+                registry.register(model, std::sync::Arc::new(engine));
+            }
+            Ok(_) => tracing::warn!(
+                model = %model,
+                "native MLX engine loaded but metallib not located; not registering (confidential tier unavailable)"
+            ),
+            Err(e) => {
+                tracing::warn!(error = %e, model = %model, "failed to load native MLX engine")
+            }
+        }
+    }
+
     let raw = std::env::var("COCORE_INFERENCE_MODELS")
         .or_else(|_| std::env::var("COCORE_INFERENCE_MODEL"))
         .unwrap_or_default();
@@ -1412,6 +1471,22 @@ fn build_engines(
         too_large.extend(over_budget);
         kept
     };
+
+    // Headroom advisory (does NOT drop anything — the hard guard above
+    // already kept the set within total RAM). If the kept set leaves less
+    // than the user reserve free, the Mac may get sluggish under the
+    // owner's own work; surface that the same way the tray meter does.
+    if !ignore_ram_floor {
+        let report = cocore_provider::pricing::budget_report(&configured, ram_gb);
+        if matches!(report.status, cocore_provider::pricing::BudgetStatus::Tight) {
+            tracing::warn!(
+                used_gb = report.used_gb,
+                reserve_gb = report.reserve_gb,
+                ram_gb = report.total_gb,
+                "pinned models fit but leave little headroom for your own apps — this Mac may get sluggish while you use it. Drop one or stagger their hours."
+            );
+        }
+    }
 
     let mut failed: Vec<String> = vec![];
     let mut saw_venv_missing = false;

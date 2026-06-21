@@ -34,6 +34,8 @@ use anyhow::Result;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+#[cfg(feature = "native_mlx")]
+pub mod native_mlx;
 pub mod stub;
 pub mod subprocess;
 
@@ -219,6 +221,36 @@ pub trait Engine: Send + Sync {
     /// completion. Override `generate_stream` instead when the
     /// backend can stream token deltas natively.
     fn generate_once(&self, request: &GenerateRequest) -> Result<GenerateResponse>;
+
+    /// True iff this engine processes the plaintext prompt ENTIRELY inside the
+    /// measured provider binary — no owner-controlled subprocess, interpreter,
+    /// or IPC the attestation doesn't cover. This is the load-bearing
+    /// confidential property (darkbloom's "in-process inference"). Only a
+    /// native in-process engine returns true; the subprocess and stub engines
+    /// return the default `false`. The attestation producer reads this to set
+    /// `inProcessBackend` honestly, and the confidential tier requires it.
+    fn in_process(&self) -> bool {
+        false
+    }
+
+    /// SHA-256 hex of the precompiled GPU shader library (e.g. `mlx.metallib`)
+    /// this engine loads, when it has one. The kernels that touch plaintext
+    /// live there, so a confidential verifier pins it alongside the cdHash.
+    /// `None` for engines without a measured metallib (subprocess/stub).
+    fn metallib_hash(&self) -> Option<String> {
+        None
+    }
+
+    /// SHA-256 hex of the dynamic library that actually runs the in-process
+    /// engine (e.g. `libCoCoreMLX.dylib`), when one is loaded. Because a
+    /// dynamic engine lib is a measurable component the main binary's cdHash
+    /// does NOT cover, a confidential verifier pins this too (enforced library
+    /// validation already blocks a different team's dylib; this also locks the
+    /// hash within our own team's releases). `None` for engines whose code is
+    /// fully inside the measured binary (stub) or in a subprocess.
+    fn engine_lib_hash(&self) -> Option<String> {
+        None
+    }
 }
 
 #[cfg(test)]

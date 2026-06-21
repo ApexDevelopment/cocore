@@ -86,6 +86,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class AppState: ObservableObject {
     @Published var session: PersistedSession?
     @Published var trustLevel: TrustLevel = .selfAttested
+    /// The advisor's VERIFIED confidential standing for this machine (cdHash
+    /// known-good + challenge-verified posture). Distinct from `trustLevel`,
+    /// which is the provider record's self-asserted value.
+    @Published var confidential: Bool = false
     @Published var attestationExpiresAt: Date?
     @Published var creditsLast24h: Int = 0
     @Published var balanceCredits: Int?
@@ -118,6 +122,7 @@ final class AppState: ObservableObject {
         let earned24h: Int?
         let balance: Int?
         let trustLevel: String?
+        let confidential: Bool?
         let agentVersion: String?
     }
 
@@ -147,6 +152,7 @@ final class AppState: ObservableObject {
             self.balanceCredits = e.balance
             if let bal = e.balance { d.set(bal, forKey: CacheKey.balance) }
             if let raw = e.trustLevel, let t = TrustLevel(rawValue: raw) { self.trustLevel = t }
+            self.confidential = e.confidential ?? false
             if let v = e.agentVersion {
                 self.agentVersion = v
                 d.set(v, forKey: CacheKey.agentVersion)

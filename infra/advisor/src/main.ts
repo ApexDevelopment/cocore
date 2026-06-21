@@ -27,8 +27,10 @@ import { WebSocketServer } from "ws";
 import { makeRuntime, record } from "@cocore/o11y";
 import { err, jsonBody, makeNodeHandler, ok } from "@cocore/o11y/http";
 
+import { loadApnsConfig } from "./apns.ts";
 import { handleConnection } from "./connection.ts";
 import { jobsRoute } from "./jobs.ts";
+import { KnownGoodSet } from "./known-good.ts";
 import { onlineProviders, ttftMs } from "./metrics.ts";
 import { ProviderRegistry } from "./registry.ts";
 import { SessionManager } from "./sessions.ts";
@@ -157,7 +159,19 @@ async function main(): Promise<void> {
   // `makeNodeHandler`; both export under serviceName "cocore-advisor".
   const runtime = makeRuntime(SERVICE);
 
-  const registry = new ProviderRegistry();
+  // APNs code-identity sender config (APNS_AUTH_KEY/KEY_ID/TEAM_ID/TOPIC).
+  // Null when unset → the code-identity challenge is disabled AND confidential
+  // eligibility is NOT gated on it (pre-APNs behavior, no hard cutover).
+  const apnsConfig = loadApnsConfig();
+  if (apnsConfig) {
+    console.error(`[advisor] APNs code-identity enabled topic=${apnsConfig.topic}`);
+  } else {
+    console.error("[advisor] APNs code-identity disabled (APNS_* env not set)");
+  }
+  // Known-good cdHash set (WS-COORDINATOR) + APNs enforcement (P2). Empty unless
+  // COCORE_KNOWN_GOOD_CDHASHES is set → fail-closed (no machine is confidential-
+  // eligible until a blessed-build set is configured).
+  const registry = new ProviderRegistry(KnownGoodSet.fromEnv(), apnsConfig !== null);
   // Rolling time-to-first-token window (received → first chunk relayed),
   // surfaced at GET /ttft for the console's public latency stat.
   const ttft = new TtftWindow(TTFT_WINDOW_SAMPLES);
@@ -237,9 +251,39 @@ async function main(): Promise<void> {
             // Machine has been handed jobs but produced no completions —
             // it's failing silently (vs. openly crash-looping).
             silentFailure: p.silentFailure,
+            // Confidential-tier routing hints (WS-COORDINATOR + P2). `trustTier`
+            // is what the advisor computed; `cdHash` is the measured identity it
+            // checked; `codeAttested` is the live APNs code-identity standing.
+            trustTier: p.confidentialEligible ? "attested-confidential" : "best-effort",
+            confidentialEligible: p.confidentialEligible,
+            cdHash: p.cdHash,
+            challengeVerifiedSip: p.challengeVerifiedSip,
+            codeAttested: p.codeAttested,
           })),
         ),
       ).pipe(Effect.withSpan("advisor.providers")),
+    ),
+    HttpRouter.get(
+      "/verified-providers",
+      // Read-only feed of confidential-eligible machines (accelerator over the
+      // providers' signed PDS attestations — a requester still re-verifies the
+      // attestation at seal time before trusting the tier).
+      Effect.sync(() =>
+        ok(
+          registry.listConfidential().map((p) => ({
+            did: p.did,
+            machineId: p.machineId,
+            machineLabel: p.machineLabel,
+            chip: p.chip,
+            supportedModels: p.supportedModels,
+            encryptionPubKey: p.encryptionPubKey,
+            attestationUri: p.attestationUri,
+            cdHash: p.cdHash,
+            trustTier: "attested-confidential",
+            attestedAt: p.attestedAt ? new Date(p.attestedAt).toISOString() : null,
+          })),
+        ),
+      ).pipe(Effect.withSpan("advisor.verified-providers")),
     ),
     HttpRouter.post("/control", controlRoute(registry).pipe(Effect.withSpan("advisor.control"))),
     HttpRouter.post(
@@ -288,6 +332,7 @@ async function main(): Promise<void> {
           keepaliveIntervalMs: WS_KEEPALIVE_INTERVAL_MS,
           keepaliveMaxMissed: WS_KEEPALIVE_MAX_MISSED,
           maxConnectionMs: WS_MAX_CONNECTION_MS,
+          apns: apnsConfig,
         }),
       ).pipe(Effect.withSpan("advisor.ws.connection")),
     ),
