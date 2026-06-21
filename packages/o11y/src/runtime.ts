@@ -49,3 +49,23 @@ export function runTraced<A, E, R>(
 ): Promise<A> {
   return runtime.runPromise(Effect.withSpan(effect, name, attributes ? { attributes } : undefined));
 }
+
+/** Span-wrap a plain async thunk on a runtime — for imperative (non-Effect)
+ *  services that just want a traced boundary around existing async code
+ *  without importing Effect themselves. */
+export function runTracedPromise<A>(
+  runtime: O11yRuntime,
+  name: string,
+  thunk: () => Promise<A>,
+  attributes?: SpanAttributes,
+): Promise<A> {
+  return runtime.runPromise(
+    Effect.withSpan(Effect.promise(thunk), name, attributes ? { attributes } : undefined),
+  );
+}
+
+/** Fire-and-forget: record a metric (or any unit effect) on the runtime
+ *  without awaiting. For incrementing counters from imperative code. */
+export function record(runtime: O11yRuntime, effect: Effect.Effect<unknown>): void {
+  void runtime.runPromise(effect).catch(() => {});
+}
