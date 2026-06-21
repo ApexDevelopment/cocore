@@ -9,7 +9,7 @@ function router() {
   return buildDevicePairRouter(new PairStore("https://console.test"), {
     accountStore: new AccountStore(":memory:"),
     appviewDid: "did:web:appview.test",
-    apiBase: "https://appview.test",
+    apiBase: "https://console.test",
   });
 }
 

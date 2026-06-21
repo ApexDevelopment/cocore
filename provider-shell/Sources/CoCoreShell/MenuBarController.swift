@@ -414,10 +414,15 @@ final class MenuBarController {
             // a process the console still believes is paused (the resume mirror
             // of the stuck-pause bug below).
             let (status, out) = await ModelManager.run(["agent", "resume"])
-            guard status == 0 else {
-                NSLog("cocore: resume failed (status %d): %@", status, out)
-                presentServeSwitchError(action: "resume", detail: out)
-                return
+            if status != 0 {
+                // First serve: no provider record on PDS yet — `agent serve`
+                // publishes one. Resume only flips `active` on an existing record.
+                let firstStart = out.contains("no provider record")
+                if !firstStart {
+                    NSLog("cocore: resume failed (status %d): %@", status, out)
+                    presentServeSwitchError(action: "resume", detail: out)
+                    return
+                }
             }
             Self.setOwnerPaused(false)
             pausedByOwner = false

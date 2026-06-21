@@ -240,9 +240,11 @@ function buildAppviewRouters(
       process.env["BETTER_AUTH_URL"] ||
       "http://localhost:3000"
     ).replace(/\/$/, "");
-    const apiBase = opts.appviewDid.startsWith("did:web:")
-      ? `https://${opts.appviewDid.slice("did:web:".length)}`
-      : verificationBase;
+    // Agents always post to the console's `/api/pds/*` (Bearer key → console
+    // resolves → internal forward to this AppView). On Railway the AppView
+    // service is not publicly routed, so deriving apiBase from `did:web:` would
+    // hand agents a dead hostname even though pairing succeeded.
+    const apiBase = process.env["COCORE_AGENT_API_BASE"]?.replace(/\/$/, "") || verificationBase;
     routers.push(
       buildDevicePairRouter(new PairStore(verificationBase), {
         accountStore: opts.accountStore,

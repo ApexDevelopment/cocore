@@ -30,9 +30,23 @@ export interface DevicePairContext {
   /** This AppView's service DID — the `aud` that confirm's service-auth
    *  JWT must target. */
   appviewDid: string;
-  /** Base URL the paired agent posts records to (the AppView's own public
-   *  origin; the agent appends `/api/pds/createRecord`). */
+  /** Console origin agents append `/api/pds/*` to (console resolves the
+   *  Bearer key and forwards the write here internally). */
   apiBase: string;
+}
+
+function isProviderSession(v: unknown): v is ProviderSession {
+  if (typeof v !== "object" || v === null) return false;
+  const s = v as Record<string, unknown>;
+  return (
+    typeof s.did === "string" &&
+    s.did.startsWith("did:") &&
+    typeof s.handle === "string" &&
+    typeof s.apiKey === "string" &&
+    s.apiKey.startsWith("cocore-") &&
+    typeof s.apiBase === "string" &&
+    s.apiBase.startsWith("http")
+  );
 }
 
 export function buildDevicePairRouter(
@@ -92,7 +106,11 @@ export function buildDevicePairRouter(
         const parsed = yield* Effect.either(jsonBody);
         if (parsed._tag === "Left")
           return err(400, { error: "InvalidRequest", message: parsed.left.message });
-        const body = parsed.right as { userCode?: unknown; decision?: unknown };
+        const body = parsed.right as {
+          userCode?: unknown;
+          decision?: unknown;
+          providerSession?: unknown;
+        };
 
         const code = (typeof body.userCode === "string" ? body.userCode : "").trim().toUpperCase();
         if (!code) return err(400, { error: "InvalidRequest", message: "missing userCode" });
@@ -112,15 +130,28 @@ export function buildDevicePairRouter(
           });
         }
 
-        // Approve: mint a scoped key for the verified DID and bind the
-        // ProviderSession to the pairing.
-        const hydrated = yield* Effect.promise(() => hydrateDids([did]).catch(() => new Map()));
-        const handle = hydrated.get(did)?.handle ?? did;
-        const { secret } = ctx.accountStore.createKey({
-          did,
-          name: `paired machine (${new Date().toISOString().slice(0, 10)})`,
-        });
-        const session: ProviderSession = { did, handle, apiKey: secret, apiBase: ctx.apiBase };
+        // Approve: bind a ProviderSession to the pairing. When the console
+        // forwards confirm it mints the key in its own store (so Bearer
+        // auth on `/api/pds/*` resolves) and passes the session here.
+        // Fall back to minting on the AppView for direct callers / tests.
+        const bodySession = body.providerSession;
+        let session: ProviderSession;
+        if (isProviderSession(bodySession)) {
+          session = {
+            did,
+            handle: bodySession.handle,
+            apiKey: bodySession.apiKey,
+            apiBase: bodySession.apiBase,
+          };
+        } else {
+          const hydrated = yield* Effect.promise(() => hydrateDids([did]).catch(() => new Map()));
+          const handle = hydrated.get(did)?.handle ?? did;
+          const { secret } = ctx.accountStore.createKey({
+            did,
+            name: `paired machine (${new Date().toISOString().slice(0, 10)})`,
+          });
+          session = { did, handle, apiKey: secret, apiBase: ctx.apiBase };
+        }
         try {
           const entry = store.approve(code, session);
           return ok({ ok: true, status: entry.status });

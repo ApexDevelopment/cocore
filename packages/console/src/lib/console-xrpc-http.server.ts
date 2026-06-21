@@ -17,7 +17,10 @@ import { Effect, Either } from "effect";
 import { runTraced } from "@/lib/o11y.server.ts";
 import { getAtprotoSessionForRequest } from "@/middleware/auth.server.ts";
 import { PairError, sharedStore } from "./pair-store.ts";
-import { providerSessionForDidEffect } from "./provider-session-from-oauth.server.ts";
+import {
+  providerSessionForDidEffect,
+  type ProviderSessionWire,
+} from "./provider-session-from-oauth.server.ts";
 
 function json(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -101,6 +104,15 @@ export async function devicePairConfirmResponse(request: Request): Promise<Respo
       return json({ error: "bad json" }, 400);
     }
 
+    let providerSession: ProviderSessionWire | null = null;
+    if (body.decision === "approve") {
+      providerSession = await runTraced(
+        "devicePair.mintSession",
+        providerSessionForDidEffect(auth.did as Did),
+      );
+      if (!providerSession) return json({ error: "could not mint provider session" }, 500);
+    }
+
     // Mint a service-auth JWT bound to this method so the AppView can
     // verify the approver's DID without the console asserting it.
     let token: string;
@@ -119,7 +131,11 @@ export async function devicePairConfirmResponse(request: Request): Promise<Respo
       await fetch(`${base}/xrpc/dev.cocore.devicePair.confirm`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify({ userCode: body.userCode, decision: body.decision }),
+        body: JSON.stringify({
+          userCode: body.userCode,
+          decision: body.decision,
+          ...(providerSession ? { providerSession } : {}),
+        }),
       }),
     );
   }
