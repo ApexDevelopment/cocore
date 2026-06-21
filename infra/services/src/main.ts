@@ -661,12 +661,12 @@ async function main() {
     }).pipe(Effect.withSpan("services.admin.reconcile"));
 
   const bridgeRouter = HttpRouter.empty.pipe(
-    HttpRouter.get(
-      "/healthz",
-      Effect.sync(() => ok({ ok: true, exchangeDid: EXCHANGE_DID })).pipe(
-        Effect.withSpan("services.healthz"),
-      ),
-    ),
+    // NB: no `/healthz` here. `appview.public` (concatenated below) already
+    // registers `GET /healthz`, and `HttpRouter.concatAll` throws
+    // "Method 'GET' already declared for route '/healthz'" on a duplicate —
+    // which fails the *entire* merged router, 500ing every bridge request.
+    // The liveness contract (Railway healthcheckPath, docker-compose probe,
+    // infra/smoke.ts) only needs a 200; appview's `/healthz` provides it.
     HttpRouter.post(
       "/xrpc/dev.cocore.bridge.publish",
       Effect.gen(function* () {
