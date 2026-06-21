@@ -122,6 +122,11 @@ final class AppState: ObservableObject {
     }
 
     func refreshStatus() async {
+        // Target session.apiBase — the service that paired us, which both holds
+        // our bearer key and serves /api/agent/status. Console-paired agents
+        // get the console; device-pair'd agents get the AppView. Using a fixed
+        // console URL would send AppView-keyed agents to a service that can't
+        // resolve their key (401).
         guard let s = session,
               let apiKey = s.apiKey,
               let base = s.apiBase,
