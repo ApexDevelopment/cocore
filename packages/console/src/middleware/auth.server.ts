@@ -8,7 +8,7 @@ import {
   revokeAppSession,
 } from "@/integrations/auth/app-session-store.server.ts";
 import { runTraced } from "@/lib/o11y.server.ts";
-import { readAuthSessionToken } from "@/integrations/auth/cookie-parse.ts";
+import { readAllAuthSessionTokens } from "@/integrations/auth/cookie-parse.ts";
 
 export type AtprotoSessionContext = {
   did: string;
@@ -19,25 +19,34 @@ export function atprotoSessionForRequestEffect(
   request: Request,
 ): Effect.Effect<AtprotoSessionContext | undefined> {
   return Effect.gen(function* () {
-    const sessionToken = readAuthSessionToken(request.headers.get("cookie"));
-    if (!sessionToken) return undefined;
+    // The browser may present more than one `cocore-auth.session_token` after
+    // the host-only → Domain=cocore.dev cookie cutover (see
+    // readAllAuthSessionTokens). The stale host-only cookie sorts first, so we
+    // can't trust just the first value — try each candidate and use the first
+    // that resolves to a live session.
+    const sessionTokens = readAllAuthSessionTokens(request.headers.get("cookie"));
+    if (sessionTokens.length === 0) return undefined;
 
-    const app = resolveAppSessionToken(sessionToken);
-    if (!app) return undefined;
+    for (const sessionToken of sessionTokens) {
+      const app = resolveAppSessionToken(sessionToken);
+      if (!app) continue;
 
-    const { did } = app;
-    if (!isDid(did)) return undefined;
+      const { did } = app;
+      if (!isDid(did)) continue;
 
-    const oauthSession = yield* restoreAtprotoSessionEffect(did);
-    if (!oauthSession) {
-      // OAuth session is gone (revoked or never written). Drop the
-      // app session so the user re-authenticates; don't try to
-      // revoke at the auth server (already gone).
-      revokeAppSession(sessionToken);
-      return undefined;
+      const oauthSession = yield* restoreAtprotoSessionEffect(did);
+      if (!oauthSession) {
+        // OAuth session is gone (revoked or never written). Drop this app
+        // session so the user re-authenticates; don't try to revoke at the
+        // auth server (already gone). Keep checking the other candidates.
+        revokeAppSession(sessionToken);
+        continue;
+      }
+
+      return { did, oauthSession };
     }
 
-    return { did, oauthSession };
+    return undefined;
   });
 }
 
