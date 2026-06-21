@@ -17,6 +17,11 @@ struct StatusRows: View {
     /// just hides the button.
     var onEnableSecureMode: (() -> Void)? = nil
 
+    /// When provided, the Security section shows an Enable/Turn-off Confidential
+    /// toggle (writes the owner's `desiredTier`). The Bool is the desired state
+    /// (true = enable). Left `nil` to hide the control (read-only contexts).
+    var onSetConfidential: ((Bool) -> Void)? = nil
+
     var body: some View {
         Section("Identity") {
             if let s = state.session {
@@ -73,9 +78,14 @@ struct StatusRows: View {
             // verified) for confidential (operator can't read prompts).
             Text(state.confidential
                 ? "Your prompts run inside the measured, signed agent — the operator can't read them."
-                : "Seals inference so the operator can't read your prompts. Enable per-machine from the console (\u{201C}Upgrade to confidential\u{201D}).")
+                : "Seals inference so the operator can't read your prompts. The confidential engine serves Qwen2 / Llama / Gemma / Phi models.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if let setConfidential = onSetConfidential {
+                Button(state.confidential ? "Turn off confidential" : "Enable confidential…") {
+                    setConfidential(!state.confidential)
+                }
+            }
         }
         Section("Credits") {
             if let bal = state.balanceCredits {
