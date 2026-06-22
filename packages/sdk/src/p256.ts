@@ -41,12 +41,20 @@ export async function verifyP256(
   const sigRaw = derToRawSignature(sigDer);
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    prefixUncompressed(pubRaw),
+    // Copy into a plain ArrayBuffer-backed view: TS 5.7+ types the generic
+    // `Uint8Array<ArrayBufferLike>` as not assignable to WebCrypto's
+    // `BufferSource` (which wants `ArrayBuffer`). Runtime-equivalent.
+    new Uint8Array(prefixUncompressed(pubRaw)),
     { name: "ECDSA", namedCurve: "P-256" },
     false,
     ["verify"],
   );
-  return crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, cryptoKey, sigRaw, message);
+  return crypto.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" },
+    cryptoKey,
+    new Uint8Array(sigRaw),
+    new Uint8Array(message),
+  );
 }
 
 /** Verify a receipt body's `enclaveSignature` against an attestation's

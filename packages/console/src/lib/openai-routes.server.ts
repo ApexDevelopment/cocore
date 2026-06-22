@@ -35,6 +35,11 @@ import {
 } from "@/lib/openai-chat-completions.server.ts";
 import { resolveBearerKey } from "@/lib/api-keys.server.ts";
 import { buildModelDirectory } from "@/lib/model-directory.server.ts";
+import {
+  parseTrustFloor,
+  resolveVerifiedProviderDids,
+  type TrustFloor,
+} from "@/lib/verified-standing.server.ts";
 
 // priceCeiling shape (currency + amount) flows into BOTH the job
 // record and the paymentAuthorization record. The exchange's
@@ -160,6 +165,83 @@ export async function handlePrivateChatCompletions(request: Request): Promise<Re
     // friends-only mode. The set may be empty (user has no friends);
     // pickProvider surfaces NoFriendsAvailableError and the buffered/
     // streaming responders map that to a 503 (no_friends_available).
+    allowedProviderDids,
+  };
+
+  if (parsed.stream) {
+    return streamingResponse(id, parsed.model, runDispatch(inputs));
+  }
+  return await bufferedResponse(id, parsed.model, runDispatch(inputs));
+}
+
+/** POST /v1/verified/chat/completions — route ONLY to providers whose
+ *  attestation is cryptographically verified to meet a trust floor. Identical
+ *  wire format to `/v1/chat/completions` plus an optional `min_trust` body
+ *  field: `"hardware-attested"` (default — accept any verified machine) or
+ *  `"confidential"` (strict `attested-confidential`). Fails CLOSED with a 503
+ *  when no verified provider serves the model, so a privacy/integrity request
+ *  never silently downgrades. The allow-set is proof-backed (see
+ *  verified-standing.server.ts): a self-asserted `trustLevel` can't get a
+ *  provider routed here — only a verified Apple-rooted attestation can. */
+export async function handleVerifiedChatCompletions(request: Request): Promise<Response> {
+  const auth = await authenticate(request);
+  if (auth instanceof Response) return auth;
+
+  let raw: OpenAiChatRequest & { min_trust?: unknown };
+  try {
+    raw = (await request.json()) as typeof raw;
+  } catch {
+    return jsonError(400, "Body must be JSON");
+  }
+  const parsed = parseRequest(raw);
+  if (typeof parsed === "string") return jsonError(400, parsed);
+
+  // Floor defaults to hardware-attested ("any verified machine"). An explicit
+  // unrecognized value is a 400, never a silent downgrade.
+  let floor: TrustFloor = "hardware-attested";
+  if (raw.min_trust !== undefined) {
+    const f = parseTrustFloor(raw.min_trust);
+    if (!f) {
+      return jsonError(
+        400,
+        'min_trust must be "hardware-attested" or "confidential"',
+        "invalid_request_error",
+        "invalid_min_trust",
+      );
+    }
+    floor = f;
+  }
+
+  let allowedProviderDids: Set<string>;
+  try {
+    allowedProviderDids = await resolveVerifiedProviderDids(floor, parsed.model);
+  } catch (e) {
+    return jsonError(
+      502,
+      `failed to resolve verified providers: ${(e as Error).message}`,
+      "server_error",
+      "verified_lookup_failed",
+    );
+  }
+  if (allowedProviderDids.size === 0) {
+    return jsonError(
+      503,
+      `no provider is currently verified at the '${floor}' tier for model ${parsed.model}`,
+      "service_unavailable_error",
+      "no_verified_providers",
+    );
+  }
+
+  const id = `chatcmpl-${crypto.randomUUID().replace(/-/g, "")}`;
+  const inputs: DispatchInputs = {
+    did: auth.did,
+    oauthSession: auth.oauthSession,
+    model: parsed.model,
+    prompt: flattenMessages(parsed.messages),
+    maxTokensOut: parsed.maxTokens,
+    priceCeiling: DEFAULT_PRICE_CEILING,
+    // Same mechanism as the friends path, but the set is the proof-backed
+    // verified-provider list rather than the caller's friends.
     allowedProviderDids,
   };
 
