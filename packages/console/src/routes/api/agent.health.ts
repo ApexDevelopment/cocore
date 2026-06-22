@@ -120,7 +120,7 @@ function diagnose(input: {
   if (!input.advisorOnline && !input.pdsHasProvider) {
     return {
       diagnosis: "never-paired",
-      hint: "No agent has run under this DID. Install with `curl -fsSL console.cocore.dev/agent | sh`, then `cocore agent pair`.",
+      hint: "No agent has run under this DID. Install with `curl -fsSL cocore.dev/agent | sh`, then `cocore agent pair`.",
     };
   }
   if (advisorFresh && input.pdsHasProvider) {

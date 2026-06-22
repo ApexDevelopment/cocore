@@ -179,7 +179,7 @@ export function StartGuide() {
   const baseUrl =
     typeof window !== "undefined"
       ? `${window.location.origin}/v1`
-      : "https://console.cocore.dev/v1";
+      : "https://cocore.dev/v1";
   const snippet = useMemo(
     () => buildSnippet(REQUESTER_SNIPPET_LANG, baseUrl, model),
     [baseUrl, model],
@@ -267,12 +267,12 @@ export function StartGuide() {
                 </Body>
                 <div {...stylex.props(styles.cliBox)}>
                   <CopyToClipboardButton
-                    text="curl -fsSL console.cocore.dev/agent | sh"
+                    text="curl -fsSL cocore.dev/agent | sh"
                     style={styles.cliCopy}
                   />
                   <div>
                     <span {...stylex.props(styles.cliPrompt)}>$</span>curl -fsSL
-                    console.cocore.dev/agent | sh
+                    cocore.dev/agent | sh
                   </div>
                 </div>
 

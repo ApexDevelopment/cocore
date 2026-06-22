@@ -17,7 +17,7 @@ export const COMMUNITY_TOOLS_CATALOG: Array<CommunityTool> = [
     repoUrl: "https://github.com/willnewby/pi-cocore",
     install: "pi install git:github.com/willnewby/pi-cocore",
     setup: [
-      "Get your API key from console.cocore.dev.",
+      "Get your API key from cocore.dev.",
       "Start pi — on first run you'll be prompted for the key.",
       "Or run /cocore-setup at any time to configure or change your key.",
     ],

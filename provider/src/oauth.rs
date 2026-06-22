@@ -40,7 +40,7 @@ pub struct PairStartResponse {
 ///   console proxy. Bound to `did` server-side.
 /// - `api_base` — console URL the agent appends
 ///   `/api/pds/createRecord` to. e.g.,
-///   `https://console.cocore.dev`.
+///   `https://cocore.dev`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {

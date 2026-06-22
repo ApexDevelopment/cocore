@@ -75,7 +75,7 @@ const CONFIG = Effect.runSync(
     ),
     exchangeApiKey: secretOption("COCORE_EXCHANGE_API_KEY"),
     exchangeApiBase: Config.string("COCORE_EXCHANGE_API_BASE").pipe(
-      Config.withDefault("https://console.cocore.dev"),
+      Config.withDefault("https://cocore.dev"),
     ),
     exchangePrivateJwk: secretOption("COCORE_EXCHANGE_PRIVATE_KEY_JWK"),
     feeBps: Config.integer("COCORE_FEE_BPS").pipe(Config.withDefault(500)),
@@ -258,7 +258,7 @@ const TERMS_URI =
   Option.getOrUndefined(CONFIG.termsUri) ??
   (CONSOLE_PUBLIC_URL
     ? `${CONSOLE_PUBLIC_URL.replace(/\/$/, "")}/terms`
-    : "https://console.cocore.dev/terms");
+    : "https://cocore.dev/terms");
 
 // Shared secret used to authenticate the bridge's internal write path.
 // Kept Redacted; unwrapped only where buildAppviewSplit consumes it.
