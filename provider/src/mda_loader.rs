@@ -429,6 +429,12 @@ pub fn acquire_auto(console_base: &str, api_key: &str, public_key_b64: &str) -> 
         "{base}/api/agent/mdm/attestation-chain?serial={}",
         urlencode(&serial)
     );
+    tracing::info!(
+        serial = %serial,
+        base = %base,
+        api_key_len = api_key.len(),
+        "MDA auto: fetching captured chain"
+    );
     // Try the already-captured chain first (reused across refreshes; rate-limit
     // friendly — we never re-request once we have a bound chain). The endpoint
     // is bearer-gated, so we MUST present the api_key (a keyless GET 401s).
@@ -655,10 +661,20 @@ pub fn load_from_url(url: &str) -> Result<Vec<Vec<u8>>> {
 pub fn load_from_url_with_key(url: &str, api_key: &str) -> Result<Vec<Vec<u8>>> {
     use std::process::Command;
 
-    let mut args = vec!["-fsSL", "--max-time", "20"];
-    let auth;
-    if !api_key.is_empty() {
-        auth = format!("authorization: Bearer {api_key}");
+    // Deliberately NOT `-f`: on a non-2xx we want to SEE the status + body, not
+    // have curl collapse it into a bare non-zero exit. `-w` appends the HTTP
+    // status after the body behind a marker so we can split it back out. This
+    // is the diagnostic that pins why the in-process worker's chain GET can
+    // come back empty while an identical manual GET returns the chain.
+    const MARKER: &str = "\n__COCORE_HTTP__";
+    let wfmt = format!("{MARKER}%{{http_code}}");
+    let auth = if api_key.is_empty() {
+        String::new()
+    } else {
+        format!("authorization: Bearer {api_key}")
+    };
+    let mut args: Vec<&str> = vec!["-sSL", "--max-time", "20", "-w", &wfmt];
+    if !auth.is_empty() {
         args.push("-H");
         args.push(&auth);
     }
@@ -668,10 +684,28 @@ pub fn load_from_url_with_key(url: &str, api_key: &str) -> Result<Vec<Vec<u8>>> 
         .output()
         .with_context(|| format!("invoking curl for {url}"))?;
     if !out.status.success() {
-        bail!("curl for MDA chain URL exited with {}", out.status);
+        bail!("curl for MDA chain URL failed to run: {}", out.status);
     }
-    let body = String::from_utf8(out.stdout).context("MDA chain URL response is not UTF-8")?;
-    parse_chain_response(&body)
+    let raw = String::from_utf8(out.stdout).context("MDA chain URL response is not UTF-8")?;
+    let (body, status) = raw.rsplit_once(MARKER).unwrap_or((raw.as_str(), "?"));
+    let status = status.trim();
+    if status != "200" {
+        tracing::warn!(
+            http_status = status,
+            authed = !auth.is_empty(),
+            body = %body.chars().take(200).collect::<String>(),
+            "MDA chain GET returned non-200; treating as no chain this refresh"
+        );
+        return Ok(Vec::new());
+    }
+    let chain = parse_chain_response(body)?;
+    if chain.is_empty() {
+        tracing::info!(
+            authed = !auth.is_empty(),
+            "MDA chain GET 200 but no chain captured yet"
+        );
+    }
+    Ok(chain)
 }
 
 /// Accept either a raw PEM chain or the console's JSON shape
