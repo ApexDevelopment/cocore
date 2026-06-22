@@ -18,7 +18,7 @@
 import Foundation
 
 enum Endpoints {
-    static let prodConsole = "https://console.cocore.dev"
+    static let prodConsole = "https://cocore.dev"
     static let prodAdvisor = "wss://advisor.cocore.dev/v1/agent"
 
     /// Build-time default written into Info.plist, else prod. This is the

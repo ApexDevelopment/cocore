@@ -398,7 +398,7 @@ impl SubprocessEngine {
 
         if !self.venv_python.exists() {
             bail!(
-                "venv python missing at {}. Run `curl … console.cocore.dev/agent | sh` to (re)provision the venv.",
+                "venv python missing at {}. Run `curl … cocore.dev/agent | sh` to (re)provision the venv.",
                 self.venv_python.display()
             );
         }

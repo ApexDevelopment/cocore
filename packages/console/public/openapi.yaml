@@ -10,16 +10,16 @@ info:
     served, and bearer-key authed agent status.
 
     To use an OpenAI-compatible client, set its base URL to
-    `https://console.cocore.dev/v1` (the client appends `/chat/completions`,
+    `https://cocore.dev/v1` (the client appends `/chat/completions`,
     `/models`, … exactly as it does for `https://api.openai.com/v1`) and swap
     in a cocore API key. The legacy `/api/v1/*` paths are kept as aliases and
-    behave identically. Pointing a client at `https://console.cocore.dev`
+    behave identically. Pointing a client at `https://cocore.dev`
     alone (no version segment) hits the console web app and returns HTML, not
     the API.
   license:
     name: MIT OR Apache-2.0
 servers:
-  - url: https://console.cocore.dev
+  - url: https://cocore.dev
     description: Production
 tags:
   - name: Inference
