@@ -1604,48 +1604,50 @@ export function ChatPage(): ReactElement {
                       const thinkingActive = streaming && !!m.reasoning && !m.text;
                       const answerActive = streaming && !thinkingActive;
                       return (
-                    <div key={m.id} {...stylex.props(styles.msgAssistant)}>
-                      <div {...stylex.props(styles.msgGutter)}>
-                        <span {...stylex.props(styles.msgGutterModel)}>{m.modelId ?? modelId}</span>
-                        {m.providerLabel || m.providerDid ? (
-                          <>
-                            <span {...stylex.props(styles.metaSep)}>·</span>
-                            <span>{m.providerLabel ?? shortDid(m.providerDid ?? "")}</span>
-                          </>
-                        ) : null}
-                      </div>
-                      <div {...stylex.props(styles.msgBody)}>
-                        {m.reasoning ? (
-                          <ThinkingDisclosure reasoning={m.reasoning} active={thinkingActive} />
-                        ) : null}
-                        <ChatMarkdown streaming={answerActive} text={m.text} />
-                      </div>
-                      {m.meta ? (
-                        <div {...stylex.props(styles.msgMeta)}>
-                          <span>
-                            −
-                            <span {...stylex.props(styles.emphasis)}>
-                              {m.meta.tokensIn + m.meta.tokensOut}
-                            </span>{" "}
-                            tok
-                          </span>
-                          {m.meta.durationMs > 0 ? (
-                            <span>
-                              <span {...stylex.props(styles.emphasis)}>
-                                {Math.round((m.meta.tokensOut / m.meta.durationMs) * 1000)}
-                              </span>{" "}
-                              tok/s
+                        <div key={m.id} {...stylex.props(styles.msgAssistant)}>
+                          <div {...stylex.props(styles.msgGutter)}>
+                            <span {...stylex.props(styles.msgGutterModel)}>
+                              {m.modelId ?? modelId}
                             </span>
+                            {m.providerLabel || m.providerDid ? (
+                              <>
+                                <span {...stylex.props(styles.metaSep)}>·</span>
+                                <span>{m.providerLabel ?? shortDid(m.providerDid ?? "")}</span>
+                              </>
+                            ) : null}
+                          </div>
+                          <div {...stylex.props(styles.msgBody)}>
+                            {m.reasoning ? (
+                              <ThinkingDisclosure reasoning={m.reasoning} active={thinkingActive} />
+                            ) : null}
+                            <ChatMarkdown streaming={answerActive} text={m.text} />
+                          </div>
+                          {m.meta ? (
+                            <div {...stylex.props(styles.msgMeta)}>
+                              <span>
+                                −
+                                <span {...stylex.props(styles.emphasis)}>
+                                  {m.meta.tokensIn + m.meta.tokensOut}
+                                </span>{" "}
+                                tok
+                              </span>
+                              {m.meta.durationMs > 0 ? (
+                                <span>
+                                  <span {...stylex.props(styles.emphasis)}>
+                                    {Math.round((m.meta.tokensOut / m.meta.durationMs) * 1000)}
+                                  </span>{" "}
+                                  tok/s
+                                </span>
+                              ) : null}
+                              <span>{(m.meta.durationMs / 1000).toFixed(1)}s</span>
+                            </div>
                           ) : null}
-                          <span>{(m.meta.durationMs / 1000).toFixed(1)}s</span>
+                          {m.errorReason ? (
+                            <div {...stylex.props(styles.msgError)}>
+                              failed ({m.errorCode}): {m.errorReason}
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
-                      {m.errorReason ? (
-                        <div {...stylex.props(styles.msgError)}>
-                          failed ({m.errorCode}): {m.errorReason}
-                        </div>
-                      ) : null}
-                    </div>
                       );
                     })()
                   ),

@@ -75,10 +75,7 @@ export interface ThinkingDisclosureProps {
   active: boolean;
 }
 
-export function ThinkingDisclosure({
-  reasoning,
-  active,
-}: ThinkingDisclosureProps): ReactElement {
+export function ThinkingDisclosure({ reasoning, active }: ThinkingDisclosureProps): ReactElement {
   // Controlled expansion: expand while thinking, collapse when it ends — but
   // leave the user free to toggle it afterward. We only force the state on the
   // active→inactive (or inactive→active) transition, not on every render.
@@ -92,11 +89,7 @@ export function ThinkingDisclosure({
   }, [active]);
 
   return (
-    <Disclosure
-      isExpanded={expanded}
-      onExpandedChange={setExpanded}
-      {...stylex.props(styles.root)}
-    >
+    <Disclosure isExpanded={expanded} onExpandedChange={setExpanded} {...stylex.props(styles.root)}>
       {/* No <Heading> wrapper: react-aria allows the trigger button as a
           direct child, and an <h3> brings large default margins that double
           the gap under the toggle (the design-system disclosure omits it too). */}
