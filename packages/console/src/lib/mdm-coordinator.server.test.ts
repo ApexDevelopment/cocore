@@ -117,6 +117,8 @@ describe("buildEnrollmentProfile", () => {
     expect(p).toContain("com.apple.mdm");
     expect(p).toContain("<key>AccessRights</key><integer>3</integer>");
     expect(p).toContain("<key>SignMessage</key><true/>");
+    // Newer macOS requires the MDM payload to advertise the user channel.
+    expect(p).toContain("com.apple.mdm.per-user-connections");
     expect(p).toContain("https://mdm.example.test/mdm");
     expect(p).toContain("com.apple.mgmt.External.abc");
 

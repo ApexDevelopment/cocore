@@ -305,6 +305,12 @@ function mdmPayload(
       <key>AccessRights</key><integer>3</integer>
       <key>SignMessage</key><true/>
       <key>CheckOutWhenRemoved</key><true/>
+      <!-- Newer macOS rejects an MDM payload that doesn't declare it supports
+           the per-user connection channel ("Profile installation failed: MDM
+           payload is missing ServerCapabilities key..."). NanoMDM serves the
+           user channel, so advertise it. -->
+      <key>ServerCapabilities</key>
+      <array><string>com.apple.mdm.per-user-connections</string></array>
     </dict>`;
 }
 
