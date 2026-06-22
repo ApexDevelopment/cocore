@@ -16,22 +16,16 @@ import SwiftUI
 final class SecureModeWizardController {
     private var window: NSWindow?
     private let state: AppState
-    private let supervisor: AgentSupervisor
     private let updater: Updater
-    private let modelManager: ModelManager
     private let onReauth: () -> Void
 
     init(
         state: AppState,
-        supervisor: AgentSupervisor,
         updater: Updater,
-        modelManager: ModelManager,
         onReauth: @escaping () -> Void
     ) {
         self.state = state
-        self.supervisor = supervisor
         self.updater = updater
-        self.modelManager = modelManager
         self.onReauth = onReauth
     }
 
@@ -39,9 +33,7 @@ final class SecureModeWizardController {
         if window == nil {
             let view = SecureModeWizardView(
                 state: state,
-                supervisor: supervisor,
                 updater: updater,
-                modelManager: modelManager,
                 close: { [weak self] in self?.window?.close() },
                 onReauth: { [weak self] in
                     self?.window?.close()
@@ -159,9 +151,7 @@ enum EnrollmentProbe {
 
 struct SecureModeWizardView: View {
     @ObservedObject var state: AppState
-    let supervisor: AgentSupervisor
     @ObservedObject var updater: Updater
-    @ObservedObject var modelManager: ModelManager
     let close: () -> Void
     /// Route to the sign-in flow. Used when the agent's publish session is
     /// dead — attesting is pointless until it's restored.
@@ -170,7 +160,7 @@ struct SecureModeWizardView: View {
     /// The wizard's explicit state machine. Every step is reachable, and
     /// every step is skippable (→ Secure Mode stays best-effort).
     enum Step: Int {
-        case intro, updating, enroll, attesting, models, done
+        case intro, updating, enroll, attesting, done
     }
 
     @State private var step: Step = .intro
@@ -186,12 +176,6 @@ struct SecureModeWizardView: View {
     @State private var enrollmentId: String?
     @State private var serial: String = HardwareID.serial()
     @State private var udid: String = HardwareID.udid()
-
-    // Models step state (WS-D recommended set + WS-E meter).
-    @State private var recommended: [ModelManager.CatalogEntry] =
-        ModelManager.recommendedCatalog
-    @State private var schedules: [String: ModelManager.Window] = [:]
-    @State private var pinning = false
 
     /// Active poll task, cancelled when the user skips/closes a step.
     @State private var pollTask: Task<Void, Never>?
@@ -275,7 +259,6 @@ struct SecureModeWizardView: View {
         case .updating: updatingStep
         case .enroll: enrollStep
         case .attesting: attestingStep
-        case .models: modelsStep
         case .done: doneStep
         }
     }
@@ -385,94 +368,6 @@ struct SecureModeWizardView: View {
                         .disabled(working)
                     Button("Retry") { startAttestingStep() }
                         .disabled(working)
-                }
-            }
-        }
-    }
-
-    private var modelsStep: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Pin the recommended models")
-                .font(.title3).bold().foregroundStyle(Brand.accentText)
-            Text(
-                "Now that this Mac is attested, pin the latest-&-greatest models so it serves "
-                    + "the best mix it can run."
-            )
-            .fixedSize(horizontal: false, vertical: true)
-
-            // WS-E meter, computed over the recommended set we'd pin.
-            secureBudgetMeter
-
-            // The recommended set (WS-D), each marked fits/too-big.
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(recommended, id: \.nsid) { item in
-                    let fits = ModelManager.fitsDevice(item.minRamGB)
-                    HStack(spacing: 8) {
-                        Image(systemName: fits ? "checkmark.circle.fill" : "exclamationmark.triangle")
-                            .foregroundStyle(fits ? AnyShapeStyle(Brand.success) : AnyShapeStyle(.orange))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(item.label).font(.caption).fontWeight(.medium)
-                            Text(
-                                fits
-                                    ? "needs ~\(item.minRamGB)GB · fits this Mac"
-                                    : "needs ~\(item.minRamGB)GB — more than this Mac"
-                            )
-                            .font(.caption2).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                    .opacity(fits ? 1 : 0.6)
-                }
-            }
-
-            HStack(spacing: 10) {
-                Button(pinning ? "Pinning…" : "Pin recommended (latest & greatest)") {
-                    pinRecommended()
-                }
-                .buttonStyle(.borderedProminent).controlSize(.large)
-                .disabled(pinning)
-                Button("Keep my current selection") { advance(to: .done) }
-            }
-        }
-        .task {
-            // Refresh the recommended set live (WS-D), falling back to mirror.
-            recommended = await ModelManager.fetchRecommended()
-            schedules = ModelManager.loadSchedules()
-        }
-    }
-
-    /// The WS-E meter, computed over the recommended set this step would pin
-    /// (so the owner sees the budget BEFORE committing).
-    @ViewBuilder private var secureBudgetMeter: some View {
-        if ModelManager.deviceRamGB > 0 {
-            let fitting = recommended.filter { ModelManager.fitsDevice($0.minRamGB) }.map { $0.nsid }
-            let report = ModelManager.budgetReport(models: fitting, schedules: schedules)
-            let (color, title): (Color, String) = {
-                switch report.status {
-                case .comfortable: return (Brand.success, "Comfortable")
-                case .tight: return (.orange, "Tight")
-                case .oversubscribed: return (.red, "Oversubscribed")
-                }
-            }()
-            VStack(alignment: .leading, spacing: 6) {
-                GeometryReader { geo in
-                    let w = geo.size.width
-                    let denom = CGFloat(max(report.totalGB, max(report.usedGB, 1)))
-                    let usedW = min(w, w * CGFloat(report.usedGB) / denom)
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.18))
-                        RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.85))
-                            .frame(width: max(0, usedW))
-                    }
-                }
-                .frame(height: 12)
-                Text(
-                    "Pinned \(report.usedGB) GB · Reserved for you \(report.reserveGB) GB · This Mac \(report.totalGB) GB"
-                )
-                .font(.caption2).foregroundStyle(.secondary)
-                HStack(spacing: 6) {
-                    Circle().fill(color).frame(width: 8, height: 8)
-                    Text(title).font(.caption.weight(.semibold)).foregroundStyle(color)
                 }
             }
         }
@@ -682,7 +577,7 @@ struct SecureModeWizardView: View {
                     hasChain(data) {
                     working = false
                     progress = nil
-                    advance(to: .models)
+                    advance(to: .done)
                     return
                 }
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
@@ -706,27 +601,6 @@ struct SecureModeWizardView: View {
             if let chain = obj["chain"] as? String { return !chain.isEmpty }
         }
         return false
-    }
-
-    // MARK: step 5 — models
-
-    private func pinRecommended() {
-        pinning = true
-        Task {
-            // Pin the recommended models that fit this Mac, via the existing
-            // model-set path (which bounces the agent). We use the manager's
-            // add() so it goes through the same CLI/UserDefaults logic the
-            // Models window uses.
-            let fitting = recommended.filter { ModelManager.fitsDevice($0.minRamGB) }
-            for item in fitting where !modelManager.models.contains(item.nsid) {
-                await modelManager.add(item.nsid)
-            }
-            // Bounce the agent so it re-reads the new set.
-            await supervisor.stop()
-            await supervisor.start()
-            pinning = false
-            advance(to: .done)
-        }
     }
 
     // MARK: helpers

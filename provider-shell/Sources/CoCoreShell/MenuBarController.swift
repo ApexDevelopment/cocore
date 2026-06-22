@@ -605,9 +605,7 @@ final class MenuBarController {
     /// no longer a top-level tray item.
     private lazy var secureModeWizard: SecureModeWizardController = SecureModeWizardController(
         state: state,
-        supervisor: supervisor,
         updater: updater,
-        modelManager: modelManager,
         onReauth: { [weak self] in self?.signIn() }
     )
 
