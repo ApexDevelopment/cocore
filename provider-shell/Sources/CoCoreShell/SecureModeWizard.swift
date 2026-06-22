@@ -19,12 +19,20 @@ final class SecureModeWizardController {
     private let supervisor: AgentSupervisor
     private let updater: Updater
     private let modelManager: ModelManager
+    private let onReauth: () -> Void
 
-    init(state: AppState, supervisor: AgentSupervisor, updater: Updater, modelManager: ModelManager) {
+    init(
+        state: AppState,
+        supervisor: AgentSupervisor,
+        updater: Updater,
+        modelManager: ModelManager,
+        onReauth: @escaping () -> Void
+    ) {
         self.state = state
         self.supervisor = supervisor
         self.updater = updater
         self.modelManager = modelManager
+        self.onReauth = onReauth
     }
 
     func show() {
@@ -34,7 +42,11 @@ final class SecureModeWizardController {
                 supervisor: supervisor,
                 updater: updater,
                 modelManager: modelManager,
-                close: { [weak self] in self?.window?.close() }
+                close: { [weak self] in self?.window?.close() },
+                onReauth: { [weak self] in
+                    self?.window?.close()
+                    self?.onReauth()
+                }
             )
             let w = NSWindow(contentViewController: NSHostingController(rootView: view))
             w.title = "co/core — Secure Mode"
@@ -151,6 +163,9 @@ struct SecureModeWizardView: View {
     @ObservedObject var updater: Updater
     @ObservedObject var modelManager: ModelManager
     let close: () -> Void
+    /// Route to the sign-in flow. Used when the agent's publish session is
+    /// dead — attesting is pointless until it's restored.
+    let onReauth: () -> Void
 
     /// The wizard's explicit state machine. Every step is reachable, and
     /// every step is skippable (→ Secure Mode stays best-effort).
@@ -344,17 +359,33 @@ struct SecureModeWizardView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Attesting your hardware")
                 .font(.title3).bold().foregroundStyle(Brand.accentText)
-            Text(
-                "Your Mac is enrolled. We're now asking it to attest its hardware identity and "
-                    + "building the attestation chain. This can take a moment."
-            )
-            .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 10) {
-                Button("Attest now") { startAttestingStep() }
+            if state.needsReauth {
+                // Attesting writes a provider record. If the agent's publish
+                // session is dead, that write 401s and the attestation never
+                // lands — the silent dead-end this guard exists to prevent. So
+                // we refuse to attest and route to sign-in first.
+                Label(
+                    "Your co/core session expired, so this Mac can't publish its attestation "
+                        + "yet. Sign in again, then come back to Secure Mode.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                Button("Sign in again") { onReauth() }
                     .buttonStyle(.borderedProminent).controlSize(.large)
-                    .disabled(working)
-                Button("Retry") { startAttestingStep() }
-                    .disabled(working)
+            } else {
+                Text(
+                    "Your Mac is enrolled. We're now asking it to attest its hardware identity and "
+                        + "building the attestation chain. This can take a moment."
+                )
+                .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    Button("Attest now") { startAttestingStep() }
+                        .buttonStyle(.borderedProminent).controlSize(.large)
+                        .disabled(working)
+                    Button("Retry") { startAttestingStep() }
+                        .disabled(working)
+                }
             }
         }
     }
@@ -586,6 +617,15 @@ struct SecureModeWizardView: View {
         working = true
         progress = "Requesting a hardware attestation…"
         Task {
+            // Confirm the agent can actually publish before we attest — a fresh
+            // status probe sets state.needsReauth. Attesting with a dead session
+            // produces a chain the agent can never publish (the silent dead-end).
+            await state.refreshStatus()
+            if state.needsReauth {
+                working = false
+                progress = nil
+                return  // attestingStep now renders the "Sign in again" panel
+            }
             do {
                 try await pushAttestation()
                 progress = "Building the attestation chain…"
