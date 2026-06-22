@@ -41,20 +41,24 @@ export const Route = createFileRoute("/api/agent/mdm/push-attestation")({
         }
 
         // The NanoMDM enqueue target is the device's enrollment id — its
-        // UDID — when a real push (refresh) is wanted. The guided wizard
-        // sends neither (initial attestation runs from the enrollment
-        // profile), so a missing target is NOT an error: pushAttestation
-        // ACKs and the device attests on install. enrollmentId is kept as
-        // a fallback target for older callers.
-        const target = isValidUdid(body.udid)
-          ? body.udid
-          : typeof body.enrollmentId === "string" && body.enrollmentId.length > 0
-            ? body.enrollmentId
-            : null;
+        // UDID — when a real push (refresh) is wanted. Only a genuine device
+        // UDID is a valid NanoMDM enqueue target. The guided wizard sends
+        // `enrollmentId` (a pairing artifact, NOT the device's UDID); pushing
+        // to it FK-violates NanoMDM's enrollment_queue (enqueue 500). So we no
+        // longer treat enrollmentId as a target — a missing UDID means initial
+        // attestation runs from the enrollment profile (ACME device-attest-01
+        // on install), which is exactly the wizard's case.
+        const target = isValidUdid(body.udid) ? body.udid : null;
 
         const result = await pushAttestationCommand(body.serial, target);
-        const status = result.status === "error" ? 502 : 200;
-        return mdmJson(result, status);
+
+        // The push is ADVISORY. The attestation chain is produced by the
+        // device-attest-01 at profile-install and read back via
+        // /attestation-chain (which the wizard polls with its own timeout). A
+        // NanoMDM enqueue/push failure therefore must NOT dead-end the wizard
+        // with a 502 — surface the reason in the body and let the poll decide
+        // readiness. Auth/validation problems above are still hard errors.
+        return mdmJson(result, 200);
       },
     },
   },
