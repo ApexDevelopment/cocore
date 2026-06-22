@@ -15,7 +15,10 @@ const SECRET = "shh";
 
 type ShimLike = {
   did: string;
-  handle: (path: string, init?: { method?: string; headers?: HeadersInit; body?: BodyInit }) => Promise<Response>;
+  handle: (
+    path: string,
+    init?: { method?: string; headers?: HeadersInit; body?: BodyInit },
+  ) => Promise<Response>;
   getTokenInfo: () => Promise<{ aud: string }>;
 };
 
@@ -64,7 +67,9 @@ describe("AppviewBackedSession.handle", () => {
     // One proxy call, secret + did + verbatim body in the envelope.
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe(`${BASE}/internal/pds/proxy`);
-    expect((calls[0]!.init!.headers as Record<string, string>)["x-cocore-internal-secret"]).toBe(SECRET);
+    expect((calls[0]!.init!.headers as Record<string, string>)["x-cocore-internal-secret"]).toBe(
+      SECRET,
+    );
     const env = JSON.parse(calls[0]!.init!.body as string);
     expect(env).toMatchObject({
       did: DID,
@@ -98,7 +103,9 @@ describe("AppviewBackedSession.handle", () => {
 
   it("propagates an upstream 404 as a 404 Response (not an error)", async () => {
     mockFetch({ json: { status: 404, bodyText: JSON.stringify({ error: "RecordNotFound" }) } });
-    const res = await shim().handle("/xrpc/com.atproto.repo.getRecord?rkey=self", { method: "GET" });
+    const res = await shim().handle("/xrpc/com.atproto.repo.getRecord?rkey=self", {
+      method: "GET",
+    });
     expect(res.status).toBe(404);
     expect(res.ok).toBe(false);
   });

@@ -7,10 +7,7 @@ import {
   resolveAppSessionToken,
   revokeAppSession,
 } from "@/integrations/auth/app-session-store.server.ts";
-import {
-  appviewBackedSession,
-  appviewSessionInfo,
-} from "@/lib/appview-backed-session.server.ts";
+import { appviewBackedSession, appviewSessionInfo } from "@/lib/appview-backed-session.server.ts";
 import { isAppviewForwardConfigured } from "@/lib/appview-pds-forward.server.ts";
 import { runTraced } from "@/lib/o11y.server.ts";
 import { readAllAuthSessionTokens } from "@/integrations/auth/cookie-parse.ts";

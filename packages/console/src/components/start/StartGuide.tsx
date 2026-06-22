@@ -177,9 +177,7 @@ export function StartGuide() {
   }, [directory.data]);
 
   const baseUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/v1`
-      : "https://cocore.dev/v1";
+    typeof window !== "undefined" ? `${window.location.origin}/v1` : "https://cocore.dev/v1";
   const snippet = useMemo(
     () => buildSnippet(REQUESTER_SNIPPET_LANG, baseUrl, model),
     [baseUrl, model],
@@ -271,8 +269,8 @@ export function StartGuide() {
                     style={styles.cliCopy}
                   />
                   <div>
-                    <span {...stylex.props(styles.cliPrompt)}>$</span>curl -fsSL
-                    cocore.dev/agent | sh
+                    <span {...stylex.props(styles.cliPrompt)}>$</span>curl -fsSL cocore.dev/agent |
+                    sh
                   </div>
                 </div>
 

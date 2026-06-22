@@ -530,7 +530,8 @@ function parseProxy(b: Record<string, unknown>): ProxyEnvelope | string {
   if (typeof b.path !== "string") return "path required";
   if (!isAllowedProxyPath(b.path)) return "path not allowed";
   const method = typeof b.method === "string" ? b.method.toUpperCase() : "GET";
-  if (b.bodyText !== undefined && typeof b.bodyText !== "string") return "bodyText must be a string";
+  if (b.bodyText !== undefined && typeof b.bodyText !== "string")
+    return "bodyText must be a string";
   if (b.blobB64 !== undefined && typeof b.blobB64 !== "string") return "blobB64 must be a string";
   if (b.contentType !== undefined && typeof b.contentType !== "string")
     return "contentType must be a string";

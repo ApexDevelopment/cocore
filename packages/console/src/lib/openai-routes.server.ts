@@ -22,10 +22,7 @@ import type { OAuthSession } from "@atcute/oauth-node-client";
 import { runTraced } from "@/lib/o11y.server.ts";
 
 import { restoreAtprotoSessionEffect } from "@/integrations/auth/atproto.server.ts";
-import {
-  appviewBackedSession,
-  appviewSessionInfo,
-} from "@/lib/appview-backed-session.server.ts";
+import { appviewBackedSession, appviewSessionInfo } from "@/lib/appview-backed-session.server.ts";
 import { isAppviewForwardConfigured } from "@/lib/appview-pds-forward.server.ts";
 import { type DispatchInputs, runDispatch } from "@/lib/inference-dispatch.server.ts";
 import { listMyFriendDids } from "@/lib/friends.server.ts";

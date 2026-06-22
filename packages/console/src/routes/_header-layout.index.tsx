@@ -1648,10 +1648,10 @@ function MarketingPage() {
             <Heading2 style={styles.sectionH2}>Just change three lines.</Heading2>
             <Body style={[styles.sectionSub, styles.dropInSub]}>
               co/core speaks the same API language as everybody else. Point your existing SDK at{" "}
-              <InlineCode>cocore.dev/v1</InlineCode>, drop in a{" "}
-              <InlineCode>cocore-…</InlineCode> key, and keep going — streaming, tool calls, and the
-              usual <InlineCode>chat/completions</InlineCode> shape all work, no code changes. Host
-              from our presets or any{" "}
+              <InlineCode>cocore.dev/v1</InlineCode>, drop in a <InlineCode>cocore-…</InlineCode>{" "}
+              key, and keep going — streaming, tool calls, and the usual{" "}
+              <InlineCode>chat/completions</InlineCode> shape all work, no code changes. Host from
+              our presets or any{" "}
               <a
                 href="https://huggingface.co/models?library=mlx"
                 target="_blank"
@@ -1740,8 +1740,7 @@ function MarketingPage() {
               <span {...stylex.props(styles.swapKw)}>import</span> OpenAI{"\n\n"}
               client = OpenAI({"\n"}
               {"    "}base_url=
-              <span {...stylex.props(styles.swapHighlight)}>"https://cocore.dev/v1"</span>,
-              {"\n"}
+              <span {...stylex.props(styles.swapHighlight)}>"https://cocore.dev/v1"</span>,{"\n"}
               {"    "}api_key=
               <span {...stylex.props(styles.swapHighlight)}>"cocore-7f3a2c…"</span>,{"\n"}){"\n\n"}
               resp = client.chat.completions.<span {...stylex.props(styles.swapFn)}>create</span>(
