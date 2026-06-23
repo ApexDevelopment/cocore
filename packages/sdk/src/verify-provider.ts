@@ -483,7 +483,7 @@ export async function freshnessBindsKey(
     return false;
   }
   if (pub.length === 0) return false;
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", pub));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(pub)));
   return constantTimeEqual(digest, normalizeFreshness(freshnessCode));
 }
 
