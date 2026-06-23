@@ -34,6 +34,11 @@ final class ModelManager: ObservableObject {
     /// glitch its grouped-Form row backgrounds — twice a second as `download`
     /// republishes progress.
     @Published var downloadingModels: Set<String> = [] { didSet { recomputeActive() } }
+    /// True while provisioning but nothing is actively downloading — the
+    /// weights are on disk and a model is loading into memory (or we're between
+    /// a finished download and the next). Drives a "loading…" row so the tab
+    /// never reads as "everything complete" while the agent is still working.
+    @Published var loadingIntoMemory: Bool = false
 
     private func recomputeActive() {
         let next = models.filter { !downloadingModels.contains($0) }
@@ -164,6 +169,7 @@ final class ModelManager: ObservableObject {
         smoothedRate = nil
         download = nil
         downloadingModels = []
+        loadingIntoMemory = false
     }
 
     /// One poll tick: read the marker, update the smoothed rate, and publish
@@ -177,6 +183,7 @@ final class ModelManager: ObservableObject {
             // grouped section backgrounds).
             if download != nil { download = nil }
             if !downloadingModels.isEmpty { downloadingModels = [] }
+            if loadingIntoMemory { loadingIntoMemory = false }
             lastSample = nil
             smoothedRate = nil
             return
@@ -212,11 +219,18 @@ final class ModelManager: ObservableObject {
             items.append(DownloadInfo.Item(model: m, downloaded: got, total: repoSizes[m]))
         }
         guard !items.isEmpty else {
-            // Nothing has an in-flight download right now.
+            // Nothing has an in-flight download right now, but the marker still
+            // says provisioning — the weights are on disk and a model is loading
+            // into memory (or we're between downloads). Surface that as a
+            // loading state instead of clearing to a bare "complete" look.
             if download != nil { download = nil }
             if !downloadingModels.isEmpty { downloadingModels = [] }
+            if !loadingIntoMemory { loadingIntoMemory = true }
             return
         }
+
+        // Actively downloading — not (yet) in the load-into-memory phase.
+        if loadingIntoMemory { loadingIntoMemory = false }
 
         // Publish the downloading set only when it actually changes, so the
         // Active list (which excludes these) stays stable across progress ticks.
@@ -347,6 +361,20 @@ final class ModelManager: ObservableObject {
         var fitsBudget: Bool {
             guard ModelManager.budgetGB > 0, let w = weightGB else { return true }
             return w <= ModelManager.budgetGB
+        }
+
+        /// True for vision / multimodal (image-input) models — identified by the
+        /// HF `pipeline_tag`, the authoritative signal. The agent's inference
+        /// path is text-only (vllm-mlx serves text LLMs; the chat sends no
+        /// images), so these can't be served and adding one fails provisioning.
+        var isVision: Bool {
+            guard let tag = pipelineTag else { return false }
+            return [
+                "image-text-to-text",
+                "image-to-text",
+                "visual-question-answering",
+                "video-text-to-text",
+            ].contains(tag)
         }
 
         /// A short human descriptor from the model's HF metadata: the friendly
@@ -1063,6 +1091,26 @@ struct ModelsView: View {
                 }
             }
 
+            // Provisioning but nothing actively downloading → the weights are
+            // on disk and a model is loading into memory. Show that rather than
+            // letting the tab read as "everything complete" (which it did
+            // during the gap between/after downloads).
+            if manager.loadingIntoMemory && manager.download == nil {
+                Section {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Finishing setup — loading model into memory…")
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Loading")
+                } footer: {
+                    sectionFooter(
+                        "Large models take a moment to load into memory after downloading. The machine starts serving once it's ready."
+                    )
+                }
+            }
+
             if ModelManager.deviceRamGB > 0 {
                 Section {
                     budgetMeter
@@ -1154,15 +1202,24 @@ struct ModelsView: View {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small)
                             Text("Applying… (bouncing the agent)")
+                                .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
                     }
                     if let e = manager.error {
-                        Text(e).foregroundStyle(.red).lineLimit(4)
+                        Text(e)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     if let s = manager.loadStatus {
+                        // Match the footnote/secondary styling of the grouped
+                        // section footers (it reads as one of those notes).
                         Text(s.text)
+                            .font(.footnote)
                             .foregroundStyle(s.isFailure ? .red : .secondary)
+                            .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -1444,7 +1501,11 @@ struct ModelsView: View {
 
     /// One HuggingFace search result: the NSID, its download count, and Add.
     @ViewBuilder private func searchRow(_ r: ModelManager.CatalogResult) -> some View {
+        let vision = r.isVision
+        // Vision models can't be served at all, so they take precedence over the
+        // budget check for the row's disabled/dimmed state.
         let fits = r.fitsBudget
+        let addable = fits && !vision
         // "needs ~14 GB (weights) · 12.3K downloads" — weight footprint omitted
         // when the size is unknown. KV cache rides on top at serve time.
         let ram: String? = r.weightGB.map { "needs ~\($0) GB (weights)" }
@@ -1463,17 +1524,24 @@ struct ModelsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.tail)
                 }
+                if vision {
+                    // Authoritative HF pipeline_tag says this is multimodal —
+                    // the text-only path can't serve it, so say so plainly.
+                    Text("Vision model — co/core serves text only")
+                        .font(.footnote).foregroundStyle(.orange)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                }
                 Text(stats)
                     .font(.footnote)
-                    .foregroundStyle(fits ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                    .foregroundStyle(addable ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
             }
             Spacer()
             Button("Add") { Task { await manager.add(r.id) } }
                 .buttonStyle(.bordered)
                 .tint(Color(nsColor: .controlAccentColor))
-                .disabled(manager.busy || !fits || manager.models.contains(r.id))
+                .disabled(manager.busy || !addable || manager.models.contains(r.id))
         }
-        .opacity(fits ? 1 : 0.65)
+        .opacity(addable ? 1 : 0.65)
     }
 
     /// Compact download count, e.g. 1_234_567 → "1.2M", 9_400 → "9.4K".
