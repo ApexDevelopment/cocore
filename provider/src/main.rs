@@ -2051,26 +2051,11 @@ fn build_engines(
         }
     }
 
-    // Vision / multimodal models can't be served by the text-only inference
-    // path — loading one just makes the Python child exit 1 and (if it's the
-    // only model) bricks provisioning. Skip them up front so they're surfaced
-    // cleanly, like the RAM-floor skips, instead of burning 3 doomed attempts.
-    let mut unsupported_vision: Vec<String> = vec![];
-    let configured: Vec<String> = configured
-        .into_iter()
-        .filter(|model| {
-            if cocore_provider::engines::is_vision_model(model) {
-                tracing::warn!(
-                    model = %model,
-                    "skipping vision/multimodal model — the text-only inference path can't serve it; pick a text MLX model"
-                );
-                unsupported_vision.push(model.clone());
-                false
-            } else {
-                true
-            }
-        })
-        .collect();
+    // Vision / multimodal models ARE served now: vllm-mlx loads them through
+    // its multimodal path (the subprocess engine passes `--vision`/force_mllm
+    // for vision model ids), and the same /v1/chat/completions endpoint accepts
+    // image_url content parts. So they're no longer skipped here — they load
+    // and fail (or succeed) like any other model.
 
     let mut failed: Vec<String> = vec![];
     let mut saw_venv_missing = false;
@@ -2100,17 +2085,16 @@ fn build_engines(
         }
     }
 
-    if failed.is_empty() && too_large.is_empty() && unsupported_vision.is_empty() {
+    if failed.is_empty() && too_large.is_empty() {
         return (registry, None);
     }
 
     // The fault's `models` field lists every model that won't be served
-    // this run — the ones that tried-and-failed, the ones we skipped as too
-    // large for RAM, and the vision models the text path can't serve — so the
-    // console shows the operator the full set missing from `supportedModels`.
+    // this run — the ones that tried-and-failed and the ones we skipped as too
+    // large for RAM — so the console shows the operator the full set missing
+    // from `supportedModels`.
     let mut all_unserved = failed.clone();
     all_unserved.extend(too_large.iter().cloned());
-    all_unserved.extend(unsupported_vision.iter().cloned());
 
     // Build a curated, content-safe fault for the console. Detailed
     // tracebacks already went to `tracing` inside the recovery loop;
@@ -2165,7 +2149,7 @@ fn build_engines(
             models: all_unserved,
             at: chrono::Utc::now(),
         }
-    } else if !too_large.is_empty() {
+    } else {
         // Only RAM-floor skips — nothing actually tried to load.
         tracing::warn!(
             models = ?too_large,
@@ -2183,26 +2167,6 @@ fn build_engines(
                  know this model fits, set COCORE_IGNORE_RAM_FLOOR=1 and start serving again.",
                 too_large.join(", "),
                 ram_gb,
-            ),
-            models: all_unserved,
-            at: chrono::Utc::now(),
-        }
-    } else {
-        // Only vision/multimodal models — skipped before any load attempt.
-        tracing::warn!(
-            models = ?unsupported_vision,
-            "configured model(s) are vision/multimodal; the text-only path can't serve them — serving stub only"
-        );
-        EngineFault {
-            code: "model-vision-unsupported".to_string(),
-            message: format!(
-                "The configured model(s) [{}] are vision / multimodal (image-input) models. \
-                 cocore's inference path is text-only — the chat sends no images and the \
-                 runtime serves text LLMs — so they can't be served and were skipped. The \
-                 machine is online but only serving the no-op `stub` engine, so it won't be \
-                 matched to real inference jobs. Fix: pick a text MLX model (e.g. a \
-                 `*-Instruct` or `*-Thinking` MLX build) and start serving again.",
-                unsupported_vision.join(", "),
             ),
             models: all_unserved,
             at: chrono::Utc::now(),

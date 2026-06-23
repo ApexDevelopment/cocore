@@ -27,8 +27,8 @@ import { isAppviewForwardConfigured } from "@/lib/appview-pds-forward.server.ts"
 import { type DispatchInputs, runDispatch } from "@/lib/inference-dispatch.server.ts";
 import { listMyFriendDids } from "@/lib/friends.server.ts";
 import {
+  buildJobInput,
   bufferedResponse,
-  flattenMessages,
   jsonError,
   type OpenAiChatRequest,
   parseRequest,
@@ -125,11 +125,19 @@ export async function handleChatCompletions(request: Request): Promise<Response>
   if (typeof parsed === "string") return jsonError(400, parsed);
 
   const id = `chatcmpl-${crypto.randomUUID().replace(/-/g, "")}`;
+  let payload: Awaited<ReturnType<typeof buildJobInput>>;
+  try {
+    payload = await buildJobInput(parsed.messages);
+  } catch (e) {
+    return jsonError(400, `failed to prepare input: ${(e as Error).message}`);
+  }
   const inputs: DispatchInputs = {
     did: auth.did,
     oauthSession: auth.oauthSession,
     model: parsed.model,
-    prompt: flattenMessages(parsed.messages),
+    prompt: "",
+    payloadBytes: payload.payloadBytes,
+    inputFormat: payload.inputFormat,
     maxTokensOut: parsed.maxTokens,
     priceCeiling: DEFAULT_PRICE_CEILING,
   };
@@ -174,11 +182,19 @@ export async function handlePrivateChatCompletions(request: Request): Promise<Re
   }
 
   const id = `chatcmpl-${crypto.randomUUID().replace(/-/g, "")}`;
+  let payload: Awaited<ReturnType<typeof buildJobInput>>;
+  try {
+    payload = await buildJobInput(parsed.messages);
+  } catch (e) {
+    return jsonError(400, `failed to prepare input: ${(e as Error).message}`);
+  }
   const inputs: DispatchInputs = {
     did: auth.did,
     oauthSession: auth.oauthSession,
     model: parsed.model,
-    prompt: flattenMessages(parsed.messages),
+    prompt: "",
+    payloadBytes: payload.payloadBytes,
+    inputFormat: payload.inputFormat,
     maxTokensOut: parsed.maxTokens,
     priceCeiling: DEFAULT_PRICE_CEILING,
     // `allowedProviderDids` here is what tips runDispatch into
@@ -253,11 +269,19 @@ export async function handleVerifiedChatCompletions(request: Request): Promise<R
   }
 
   const id = `chatcmpl-${crypto.randomUUID().replace(/-/g, "")}`;
+  let payload: Awaited<ReturnType<typeof buildJobInput>>;
+  try {
+    payload = await buildJobInput(parsed.messages);
+  } catch (e) {
+    return jsonError(400, `failed to prepare input: ${(e as Error).message}`);
+  }
   const inputs: DispatchInputs = {
     did: auth.did,
     oauthSession: auth.oauthSession,
     model: parsed.model,
-    prompt: flattenMessages(parsed.messages),
+    prompt: "",
+    payloadBytes: payload.payloadBytes,
+    inputFormat: payload.inputFormat,
     maxTokensOut: parsed.maxTokens,
     priceCeiling: DEFAULT_PRICE_CEILING,
     // Same mechanism as the friends path, but the set is the proof-backed

@@ -128,6 +128,10 @@ export interface PublishPaymentAuthorizationInputs {
 export interface PublishJobInputs {
   model: string;
   inputCommitment: string;
+  /** How to interpret the sealed input bytes inputCommitment covers.
+   *  Omit (or "text") for the raw-prompt path; "messages-v1" for the
+   *  canonical multimodal envelope. */
+  inputFormat?: "text" | "messages-v1";
   inputCipherURL?: string;
   maxTokensOut: number;
   priceCeiling: Money;
@@ -184,6 +188,9 @@ export async function publishJob(args: {
     nonce: random16Hex(),
     expiresAt: args.inputs.expiresAt ?? new Date(now.getTime() + 3600_000).toISOString(),
     createdAt: now.toISOString(),
+    ...(args.inputs.inputFormat && args.inputs.inputFormat !== "text"
+      ? { inputFormat: args.inputs.inputFormat }
+      : {}),
     ...(args.inputs.inputCipherURL ? { inputCipherURL: args.inputs.inputCipherURL } : {}),
     ...(args.inputs.acceptedProviders ? { acceptedProviders: args.inputs.acceptedProviders } : {}),
     ...(args.inputs.acceptedExchanges ? { acceptedExchanges: args.inputs.acceptedExchanges } : {}),
@@ -198,7 +205,17 @@ export async function publishJob(args: {
 
 export interface SubmitJobInputs {
   model: string;
-  prompt: string;
+  /** The EXACT bytes that get sealed to the provider and that
+   *  `inputCommitment` is computed over. For the legacy text path these
+   *  are the UTF-8 of the flattened prompt; for the multimodal path they
+   *  are the canonical `messages-v1` envelope (see
+   *  packages/sdk/src/multimodal-envelope.ts). The provider recomputes
+   *  the same SHA-256 over the bytes it opens, so the commitment is
+   *  self-consistent without either side parsing the payload. */
+  inputBytes: Uint8Array;
+  /** Set to "messages-v1" when `inputBytes` is the multimodal envelope so
+   *  the published job is self-describing. Omitted for the text path. */
+  inputFormat?: "messages-v1";
   maxTokensOut: number;
   priceCeiling: Money;
   exchangeDid: string;
@@ -221,7 +238,7 @@ export async function submitJob(args: {
   requesterDid: string;
   inputs: SubmitJobInputs;
 }): Promise<SubmittedJob> {
-  const inputCommitment = await sha256Hex(new TextEncoder().encode(args.inputs.prompt));
+  const inputCommitment = await sha256Hex(args.inputs.inputBytes);
   const authorization = await publishPaymentAuthorization({
     transport: args.transport,
     requesterDid: args.requesterDid,
@@ -237,6 +254,7 @@ export async function submitJob(args: {
     inputs: {
       model: args.inputs.model,
       inputCommitment,
+      ...(args.inputs.inputFormat ? { inputFormat: args.inputs.inputFormat } : {}),
       maxTokensOut: args.inputs.maxTokensOut,
       priceCeiling: args.inputs.priceCeiling,
       acceptedTrustLevel: args.inputs.acceptedTrustLevel,

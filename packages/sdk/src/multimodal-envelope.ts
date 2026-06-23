@@ -1,0 +1,111 @@
+// The `messages-v1` canonical multimodal input envelope.
+//
+// cocore's inference path historically sealed a single flattened prompt
+// string; `inputCommitment` was SHA-256 over those exact bytes. Vision
+// models need text AND image input, so a request that carries images
+// seals a CANONICAL-JSON envelope instead of a raw string, and the job
+// record's `inputFormat` is set to "messages-v1" to say so.
+//
+// The load-bearing property is unchanged: `inputCommitment` is the hash
+// over the EXACT sealed bytes. The requester canonicalizes the envelope
+// here and hashes the bytes; the provider opens the same bytes and
+// hashes them (provider/src/advisor.rs). Neither side parses the payload
+// to compute the commitment, so it stays self-consistent. The envelope
+// format only governs how the provider INTERPRETS the opened bytes when
+// `inputFormat === "messages-v1"`.
+//
+// Canonicalization MUST match provider/src/canonical.rs (sorted keys,
+// no insignificant whitespace) so a verifier holding the logical input
+// can reconstruct the identical bytes and recompute the commitment.
+
+import { canonicalBytes } from "./canonical.ts";
+
+/** Wire value for `dev.cocore.compute.job.inputFormat` when the sealed
+ *  bytes are this envelope rather than a raw prompt string. */
+export const MESSAGES_V1 = "messages-v1" as const;
+
+/** Schema version carried in the envelope so the provider can reject a
+ *  shape it doesn't understand rather than mis-serving it. */
+export const ENVELOPE_VERSION = 1 as const;
+
+export interface EnvelopeTextPart {
+  type: "text";
+  text: string;
+}
+
+/** An image part. `data` is the raw image bytes, base64-encoded, carried
+ *  inline (no external fetch needed to verify the commitment). `mime` is
+ *  the source media type (e.g. "image/png") so the provider can hand a
+ *  correct data URI to the engine. */
+export interface EnvelopeImagePart {
+  type: "image";
+  mime: string;
+  data: string;
+}
+
+export type EnvelopeContentPart = EnvelopeTextPart | EnvelopeImagePart;
+
+/** Message content: a plain string (text-only turn) or an ordered array
+ *  of parts (text interleaved with images). */
+export type EnvelopeContent = string | EnvelopeContentPart[];
+
+export interface EnvelopeMessage {
+  role: string;
+  content: EnvelopeContent;
+}
+
+export interface MultimodalEnvelope {
+  v: typeof ENVELOPE_VERSION;
+  messages: EnvelopeMessage[];
+}
+
+/** True when any message carries an image part — i.e. the request must
+ *  travel as a messages-v1 envelope rather than the legacy text path. */
+export function hasImageParts(messages: EnvelopeMessage[]): boolean {
+  return messages.some(
+    (m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image"),
+  );
+}
+
+/** Canonical bytes of the envelope — the exact payload that gets sealed
+ *  and that `inputCommitment` is computed over. Reuses the shared
+ *  `canonicalBytes` so the serialization matches the provider byte for
+ *  byte. */
+export function buildEnvelopeBytes(messages: EnvelopeMessage[]): Uint8Array {
+  const envelope: MultimodalEnvelope = { v: ENVELOPE_VERSION, messages };
+  return canonicalBytes(envelope as unknown as Record<string, unknown>);
+}
+
+/** Parse + minimally validate envelope bytes back into the structured
+ *  form. Used by verifiers and tests; the provider has its own Rust
+ *  parser. Throws on a malformed or unknown-version envelope. */
+export function parseEnvelope(bytes: Uint8Array): MultimodalEnvelope {
+  const obj = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  if (!obj || typeof obj !== "object") throw new Error("envelope is not an object");
+  const e = obj as Record<string, unknown>;
+  if (e.v !== ENVELOPE_VERSION) throw new Error(`unsupported envelope version: ${String(e.v)}`);
+  if (!Array.isArray(e.messages)) throw new Error("envelope.messages must be an array");
+  const messages: EnvelopeMessage[] = e.messages.map((m, i) => {
+    if (!m || typeof m !== "object") throw new Error(`message ${i} is not an object`);
+    const msg = m as Record<string, unknown>;
+    if (typeof msg.role !== "string") throw new Error(`message ${i} role must be a string`);
+    return { role: msg.role, content: parseContent(msg.content, i) };
+  });
+  return { v: ENVELOPE_VERSION, messages };
+}
+
+function parseContent(content: unknown, i: number): EnvelopeContent {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) throw new Error(`message ${i} content must be string or array`);
+  return content.map((part, j) => {
+    if (!part || typeof part !== "object") throw new Error(`message ${i} part ${j} invalid`);
+    const p = part as Record<string, unknown>;
+    if (p.type === "text" && typeof p.text === "string") {
+      return { type: "text", text: p.text };
+    }
+    if (p.type === "image" && typeof p.mime === "string" && typeof p.data === "string") {
+      return { type: "image", mime: p.mime, data: p.data };
+    }
+    throw new Error(`message ${i} part ${j} has unknown type`);
+  });
+}

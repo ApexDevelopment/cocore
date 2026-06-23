@@ -46,6 +46,11 @@ interface JobBody {
   model: string;
   maxTokensOut: number;
   ciphertext: number[] | string;
+  /** How the provider should interpret the opened ciphertext bytes:
+   *  absent/"text" (raw prompt) or "messages-v1" (multimodal envelope).
+   *  Forwarded verbatim to the provider; the advisor never inspects the
+   *  plaintext. */
+  inputFormat?: string;
   sessionId?: string;
   targetProviderDid?: string;
   /** Optional: pin to a SPECIFIC machine under `targetProviderDid` (its
@@ -57,8 +62,11 @@ interface JobBody {
 
 interface ParsedJob {
   ok: true;
-  body: Required<Omit<JobBody, "jobCid" | "targetProviderDid" | "targetMachineId">> & {
+  body: Required<
+    Omit<JobBody, "jobCid" | "inputFormat" | "targetProviderDid" | "targetMachineId">
+  > & {
     jobCid?: string;
+    inputFormat?: string;
     targetProviderDid?: string;
     targetMachineId?: string;
   };
@@ -115,6 +123,9 @@ function parseJobBody(input: unknown, generateId: () => string): ParsedJob | Par
   if (b["jobCid"] !== undefined && typeof b["jobCid"] !== "string") {
     return { ok: false, status: 400, error: "jobCid must be a string when provided" };
   }
+  if (b["inputFormat"] !== undefined && typeof b["inputFormat"] !== "string") {
+    return { ok: false, status: 400, error: "inputFormat must be a string when provided" };
+  }
   if (b["targetProviderDid"] !== undefined && typeof b["targetProviderDid"] !== "string") {
     return { ok: false, status: 400, error: "targetProviderDid must be a string when provided" };
   }
@@ -131,6 +142,7 @@ function parseJobBody(input: unknown, generateId: () => string): ParsedJob | Par
       model: b["model"] as string,
       maxTokensOut: b["maxTokensOut"] as number,
       ciphertext: ct as number[] | string,
+      inputFormat: typeof b["inputFormat"] === "string" ? b["inputFormat"] : undefined,
       sessionId: typeof b["sessionId"] === "string" ? b["sessionId"] : generateId(),
       targetProviderDid:
         typeof b["targetProviderDid"] === "string" ? b["targetProviderDid"] : undefined,
@@ -141,8 +153,12 @@ function parseJobBody(input: unknown, generateId: () => string): ParsedJob | Par
 
 /** Hard cap on a request body. `/jobs` is public (it's how requesters
  *  dispatch), so an unbounded read is a trivial memory-exhaustion DoS. A
- *  sealed prompt + metadata is comfortably under 1 MiB. */
-const MAX_BODY_BYTES = 1024 * 1024;
+ *  text prompt + metadata is well under 1 MiB, but a multimodal
+ *  (messages-v1) request inlines base64 images inside the sealed envelope,
+ *  which is then sent as a JSON number array (~4-7 bytes on the wire per
+ *  plaintext byte). 32 MiB comfortably covers a handful of typical images
+ *  while still bounding the read. */
+const MAX_BODY_BYTES = 32 * 1024 * 1024;
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -351,6 +367,7 @@ function dispatch(
     model: job.model,
     max_tokens_out: job.maxTokensOut,
     ciphertext: job.ciphertext,
+    ...(job.inputFormat ? { input_format: job.inputFormat } : {}),
     session_id: job.sessionId,
   } as InferenceRequest & { type: "inference_request" };
 

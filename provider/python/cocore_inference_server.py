@@ -128,6 +128,16 @@ def main() -> None:
         required=True,
         help="Unix domain socket path to bind",
     )
+    ap.add_argument(
+        "--vision",
+        action="store_true",
+        help=(
+            "Load as a vision/multimodal model (force_mllm). The agent passes "
+            "this for vision model ids so vllm-mlx loads the multimodal stack; "
+            "the same /v1/chat/completions endpoint then accepts image_url "
+            "content parts."
+        ),
+    )
     args = ap.parse_args()
 
     socket_path = Path(args.uds)
@@ -174,8 +184,12 @@ def main() -> None:
     # get_engine() at request time. This is the slow phase — 30-90s
     # for a 4-bit Qwen 7B on first cold load, mostly weight mmap
     # into Metal-managed buffers.
-    print(f"[cocore-engine] loading model {args.model!r}...", flush=True)
-    srv.load_model(args.model)
+    print(
+        f"[cocore-engine] loading model {args.model!r}"
+        f"{' (vision/mllm)' if args.vision else ''}...",
+        flush=True,
+    )
+    srv.load_model(args.model, force_mllm=args.vision)
     print(f"[cocore-engine] model loaded; binding {socket_path}", flush=True)
 
     # SIGTERM handler that exits cleanly. uvicorn installs its own

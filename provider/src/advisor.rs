@@ -42,7 +42,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 pub struct AdvisorClient {
     pub url: String,
@@ -60,7 +60,7 @@ struct ZeroizeOnDrop(crate::engines::GenerateRequest);
 impl Drop for ZeroizeOnDrop {
     fn drop(&mut self) {
         for m in &mut self.0.messages {
-            m.content.zeroize();
+            m.zeroize_content();
         }
     }
 }
@@ -858,23 +858,70 @@ async fn handle_inference_request_inner(
     mlock_buffer(&plaintext);
 
     // Build a chat-completions-shaped messages list from the
-    // plaintext. v0.3.x flattens the original messages array into a
-    // single `role: content\n...` string at the console; for now we
-    // re-wrap the whole prompt as a single user message. A future
-    // wire-format change will plumb the structured messages through
-    // unchanged.
-    //
-    // `prompt_str` is the UTF-8-decoded view of `plaintext`; it
-    // owns its own allocation (via to_string) and so must be
-    // zeroized separately. The clone into Message::content (below)
-    // is a third allocation — we zeroize it after the engine call
-    // returns.
-    let prompt_str: Zeroizing<String> =
-        Zeroizing::new(String::from_utf8_lossy(&plaintext).to_string());
-    let messages = vec![crate::engines::Message {
-        role: "user".to_string(),
-        content: (*prompt_str).clone(),
-    }];
+    // plaintext. The byte layout is described by `input_format`:
+    //   * absent / "text" (legacy): the bytes are a raw flattened prompt
+    //     string; re-wrap the whole thing as a single user message.
+    //   * "messages-v1": the bytes are the canonical multimodal envelope
+    //     (text + inline images); parse them into structured messages so
+    //     vision models get their image parts.
+    // The commitment is taken over `plaintext` below regardless of format,
+    // so a parse failure here only means we can't serve — never that the
+    // receipt's inputCommitment changes.
+    let messages = match req.input_format.as_deref() {
+        Some("messages-v1") => match crate::engines::parse_messages_v1(&plaintext) {
+            Ok(msgs) => msgs,
+            Err(e) => {
+                tracing::warn!(error = %e, session_id = %session_id, "failed to parse messages-v1 envelope");
+                let err =
+                    "[cocore provider] could not parse the multimodal input envelope".to_string();
+                let err_ct = match ctx
+                    .encryption
+                    .seal_to(&req.requester_pub_key, err.as_bytes())
+                {
+                    Ok(ct) => ct,
+                    Err(e) => {
+                        tracing::warn!(error = %e, session_id = %session_id, "failed to seal envelope-parse error");
+                        return Vec::new();
+                    }
+                };
+                let mut collected = Vec::new();
+                push_frame(
+                    live_tx.as_ref(),
+                    &mut collected,
+                    AdvisorMessage::InferenceChunk(InferenceChunk {
+                        session_id: session_id.clone(),
+                        seq: 0,
+                        channel: ChunkChannel::Content,
+                        ciphertext: err_ct,
+                    }),
+                );
+                push_frame(
+                    live_tx.as_ref(),
+                    &mut collected,
+                    AdvisorMessage::InferenceComplete(InferenceComplete {
+                        session_id,
+                        tokens_in: 0,
+                        tokens_out: 0,
+                        receipt_uri: String::new(),
+                        receipt_commit_rev: None,
+                        receipt_commit_cid: None,
+                    }),
+                );
+                return if live_tx.is_some() {
+                    Vec::new()
+                } else {
+                    collected
+                };
+            }
+        },
+        // None or "text": legacy raw-prompt path. `String::from_utf8_lossy`
+        // owns its own allocation; the Message parts are zeroized by the
+        // request's drop guard after the engine call returns.
+        _ => vec![crate::engines::Message::text(
+            "user",
+            String::from_utf8_lossy(&plaintext).to_string(),
+        )],
+    };
     let request = crate::engines::GenerateRequest {
         model: req.model.clone(),
         messages,
@@ -1874,6 +1921,7 @@ mod tests {
             model: "stub".into(),
             max_tokens_out: 16,
             ciphertext: ct,
+            input_format: None,
             session_id: "session-1".into(),
             nonce: None,
             attestation_cid: None,
@@ -1927,6 +1975,7 @@ mod tests {
             max_tokens_out: 1,
             // Garbage bytes — won't decrypt.
             ciphertext: vec![0u8; 64],
+            input_format: None,
             session_id: "bad".into(),
             nonce: None,
             attestation_cid: None,
@@ -1963,6 +2012,7 @@ mod tests {
             model: "stub".into(),
             max_tokens_out: 4,
             ciphertext: ct,
+            input_format: None,
             session_id: "publish-fails".into(),
             nonce: None,
             attestation_cid: None,

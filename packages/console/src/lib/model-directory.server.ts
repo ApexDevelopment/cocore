@@ -111,6 +111,11 @@ export interface ModelDirectoryEntry {
    *  distinguish blessed/recommended models from legacy ones a
    *  provider happens to advertise. Additive — never gates routing. */
   recommended: boolean;
+  /** True when this model id looks like a vision/multimodal (image-input)
+   *  model. Vision models ARE served now (via the multimodal path), so this
+   *  is a capability hint for the UI (e.g. an image-upload affordance), not
+   *  a gate. Additive — consumers that ignore it behave as before. */
+  vision: boolean;
 }
 
 export interface ModelDirectoryResponse {
@@ -319,11 +324,12 @@ async function fetchAdvisorOnlineDids(): Promise<Map<string, AdvisorOnline> | nu
   }
 }
 
-// Substrings that mark a vision / multimodal (image-in) model. The inference
-// path is text-only (vllm-mlx serves text LLMs; the chat UI sends no images),
-// so these can't actually be served and are omitted from the directory. Single
-// tokens are matched at id-segment boundaries (ids split on /-._) so a bare
-// "vl" doesn't match unrelated words; multi-token markers match as substrings.
+// Substrings that mark a vision / multimodal (image-in) model. These models
+// ARE served now (vllm-mlx loads them via force_mllm and the chat path can send
+// images), so this is a capability hint, not an exclusion. Single tokens are
+// matched at id-segment boundaries (ids split on /-._) so a bare "vl" doesn't
+// match unrelated words; multi-token markers match as substrings. Mirrors the
+// Rust is_vision_model (provider/src/engines/mod.rs).
 const VISION_MODEL_MARKERS = [
   "vl",
   "vlm",
@@ -339,7 +345,7 @@ const VISION_MODEL_MARKERS = [
   "florence",
 ];
 
-/** Whether `modelId` looks like a vision/multimodal model we can't serve. */
+/** Whether `modelId` looks like a vision/multimodal (image-input) model. */
 export function isVisionModel(modelId: string): boolean {
   const lower = modelId.toLowerCase();
   return VISION_MODEL_MARKERS.some((marker) =>
@@ -430,9 +436,6 @@ export async function buildModelDirectory(): Promise<ModelDirectoryResponse> {
 
     for (const modelId of supportedModels) {
       if (typeof modelId !== "string" || modelId.length === 0) continue;
-      // Vision/multimodal models can't be served by the text-only path — drop
-      // them so they never surface in the picker or directory.
-      if (isVisionModel(modelId)) continue;
       let entry = byModel.get(modelId);
       if (!entry) {
         entry = {
@@ -445,6 +448,9 @@ export async function buildModelDirectory(): Promise<ModelDirectoryResponse> {
           freshestAt: null,
           activity: totalsFor(activity, modelId),
           recommended: RECOMMENDED_MODEL_IDS.has(modelId),
+          // Surface the capability so the UI can show an image-upload
+          // affordance; no longer used to exclude the model.
+          vision: isVisionModel(modelId),
         };
         byModel.set(modelId, entry);
       }

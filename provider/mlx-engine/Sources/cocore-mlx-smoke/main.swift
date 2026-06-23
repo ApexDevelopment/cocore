@@ -25,7 +25,8 @@ Task {
         FileHandle.standardError.write(
             Data("[smoke] loaded; metallibHash=\(engine.metallibHash ?? "nil")\n".utf8))
         FileHandle.standardError.write(Data("[smoke] prompt: \(prompt)\n[smoke] output: ".utf8))
-        let (tin, tout) = try await engine.generate(prompt: prompt, maxTokens: 64) { delta in
+        let (tin, tout) = try await engine.generate(prompt: prompt, images: [], maxTokens: 64) {
+            delta in
             FileHandle.standardOutput.write(Data(delta.utf8))
         }
         FileHandle.standardError.write(Data("\n[smoke] OK tokensIn=\(tin) tokensOut=\(tout)\n".utf8))

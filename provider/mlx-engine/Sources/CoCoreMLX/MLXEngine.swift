@@ -6,7 +6,9 @@
 // same libraries darkbloom's provider-swift uses, NOT their proprietary code.
 
 import Foundation
+import CoreImage
 import MLXLLM
+import MLXVLM
 import MLXLMCommon
 import CryptoKit
 
@@ -22,24 +24,54 @@ public final class MLXEngine {
     /// Load an MLX model (safetensors weights + tokenizer) from a local
     /// directory into this process. No network — the directory is the
     /// already-downloaded HF snapshot.
+    ///
+    /// A vision-language model (its `config.json` carries a `vision_config`)
+    /// is loaded through `VLMModelFactory` so image input works in-process;
+    /// everything else loads through `LLMModelFactory`. Both return a uniform
+    /// `ModelContainer`, so generation below is identical.
     public static func load(modelDir: String) async throws -> MLXEngine {
         let config = ModelConfiguration(directory: URL(fileURLWithPath: modelDir))
-        let container = try await LLMModelFactory.shared.loadContainer(configuration: config)
+        let container: ModelContainer
+        if isVisionModelDir(modelDir) {
+            container = try await VLMModelFactory.shared.loadContainer(configuration: config)
+        } else {
+            container = try await LLMModelFactory.shared.loadContainer(configuration: config)
+        }
         return MLXEngine(container: container, metallibHash: locateMetallibHash())
     }
 
+    /// A model directory is a VLM when its `config.json` contains a
+    /// `vision_config` object — the reliable cross-architecture marker the
+    /// mlx-vlm/transformers ecosystems use for image-capable models.
+    private static func isVisionModelDir(_ modelDir: String) -> Bool {
+        let url = URL(fileURLWithPath: modelDir).appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: url),
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return false }
+        return obj["vision_config"] != nil
+    }
+
     /// Stream a completion token-by-token through `onDelta`, in-process.
-    /// Returns (promptTokenCount, generationTokenCount) for the receipt.
+    /// `images` are raw image-file bytes (PNG/JPEG/...) carried inline from
+    /// the requester's sealed envelope; each becomes a `CIImage` fed to the
+    /// VLM. Empty for a text-only request. Returns
+    /// (promptTokenCount, generationTokenCount) for the receipt.
     public func generate(
-        prompt: String, maxTokens: Int, onDelta: (String) -> Void
+        prompt: String, images: [Data], maxTokens: Int, onDelta: (String) -> Void
     ) async throws -> (Int, Int) {
         let params = GenerateParameters(maxTokens: maxTokens)
         var tokensIn = 0
         var tokensOut = 0
+        let inputImages: [UserInput.Image] = images.compactMap { data in
+            CIImage(data: data).map { UserInput.Image.ciImage($0) }
+        }
         let stream: AsyncStream<Generation> = try await container.perform {
             (context: ModelContext) in
-            let input = try await context.processor.prepare(
-                input: UserInput(chat: [.user(prompt)]))
+            let userInput =
+                inputImages.isEmpty
+                ? UserInput(chat: [.user(prompt)])
+                : UserInput(chat: [.user(prompt, images: inputImages)])
+            let input = try await context.processor.prepare(input: userInput)
             return try MLXLMCommon.generate(input: input, parameters: params, context: context)
         }
         for await item in stream {

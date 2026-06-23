@@ -120,6 +120,10 @@ export interface InferenceRequest {
   model: string;
   max_tokens_out: number;
   ciphertext: number[] | string;
+  /** How the provider interprets the opened ciphertext: absent/"text"
+   *  (raw prompt) or "messages-v1" (multimodal envelope). Forwarded from
+   *  the `/jobs` body; the advisor never reads the plaintext. */
+  input_format?: string;
   session_id: string;
 }
 

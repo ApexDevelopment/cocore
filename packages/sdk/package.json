@@ -11,6 +11,7 @@
     "./firehose": "./src/firehose.ts",
     "./lex": "./src/lex-runtime.ts",
     "./mda": "./src/mda.ts",
+    "./multimodal-envelope": "./src/multimodal-envelope.ts",
     "./appattest": "./src/appattest.ts",
     "./verify-provider": "./src/verify-provider.ts",
     "./oauth-scope": "./src/oauth-scope.ts",

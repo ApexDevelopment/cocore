@@ -206,6 +206,12 @@ pub struct InferenceRequest {
     pub model: String,
     pub max_tokens_out: u32,
     pub ciphertext: Vec<u8>, // sealed plaintext prompt, base64-decoded by the wire layer
+    /// How to interpret the opened `ciphertext` bytes. Absent (legacy) or
+    /// `"text"`: a raw flattened prompt string. `"messages-v1"`: the
+    /// canonical multimodal envelope (text + inline images). Additive —
+    /// old consoles omit it and the provider treats that as `text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_format: Option<String>,
     pub session_id: String,
     /// Confidential tier: the requester's fresh nonce. When present, the
     /// provider mints a per-request ephemeral key and returns a `SessionKey`

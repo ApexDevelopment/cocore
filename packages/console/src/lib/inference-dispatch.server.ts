@@ -35,7 +35,17 @@ import { appviewGetProfileEffect } from "@/integrations/appview/appview.server.t
 export interface DispatchInputs {
   did: string;
   model: string;
+  /** Legacy text path: the flattened prompt string. Used to derive the
+   *  sealed bytes when `payloadBytes` is absent. */
   prompt: string;
+  /** Multimodal path: the exact bytes to seal + commit over (the
+   *  canonical messages-v1 envelope). When present, these are sealed and
+   *  hashed verbatim and `prompt` is ignored. */
+  payloadBytes?: Uint8Array;
+  /** Set to "messages-v1" when `payloadBytes` is the multimodal envelope,
+   *  so the job record and the provider both interpret the bytes
+   *  correctly. */
+  inputFormat?: "messages-v1";
   maxTokensOut: number;
   priceCeiling: { amount: number; currency: string };
   targetProviderDid?: string;
@@ -489,6 +499,11 @@ const TEMP_UNAVAILABLE_REASON = "The model is temporarily unavailable. Please re
 export async function* runDispatch(input: DispatchInputs): AsyncGenerator<DispatchEvent> {
   const config = cocoreConfig();
 
+  // The exact bytes we seal to the provider and that inputCommitment is
+  // computed over. Multimodal requests pass `payloadBytes` (the canonical
+  // envelope); text requests fall back to the UTF-8 of the flattened prompt.
+  const inputBytes = input.payloadBytes ?? new TextEncoder().encode(input.prompt);
+
   // 1. Publish job + auth to the requester's PDS via OAuth, then
   //    mirror to the AppView indexer so dashboards see it.
   let submitted;
@@ -509,7 +524,8 @@ export async function* runDispatch(input: DispatchInputs): AsyncGenerator<Dispat
       requesterDid: input.did,
       inputs: {
         model: input.model,
-        prompt: input.prompt,
+        inputBytes,
+        ...(input.inputFormat ? { inputFormat: input.inputFormat } : {}),
         maxTokensOut: input.maxTokensOut,
         priceCeiling: input.priceCeiling,
         exchangeDid: config.exchangeDid,
@@ -603,12 +619,15 @@ export async function* runDispatch(input: DispatchInputs): AsyncGenerator<Dispat
     }
     const candidateEphemeral = nacl.box.keyPair();
     const candidateCiphertext = sealToProvider(
-      new TextEncoder().encode(input.prompt),
+      inputBytes,
       candidatePubKey,
       candidateEphemeral.secretKey,
     );
 
-    // 4. POST advisor /jobs, pinned to this candidate.
+    // 4. POST advisor /jobs, pinned to this candidate. `inputFormat` tells
+    //    the provider how to interpret the opened bytes (raw prompt vs the
+    //    messages-v1 multimodal envelope); omitted for the text path so old
+    //    advisors/providers keep treating the payload as text.
     const req = await fetch(`${config.advisorUrl}/jobs`, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "text/event-stream" },
@@ -620,6 +639,7 @@ export async function* runDispatch(input: DispatchInputs): AsyncGenerator<Dispat
         model: input.model,
         maxTokensOut: input.maxTokensOut,
         ciphertext: [...candidateCiphertext],
+        ...(input.inputFormat ? { inputFormat: input.inputFormat } : {}),
         sessionId,
         targetProviderDid: candidate.did,
       }),
