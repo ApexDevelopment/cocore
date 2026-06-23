@@ -44,7 +44,7 @@ import type { ModelDirectoryEntry } from "@/lib/model-directory.server.ts";
 
 const ButtonLink = createLink(Button);
 
-const DEFAULT_API_V1_BASE = "https://console.cocore.dev/v1";
+const DEFAULT_API_V1_BASE = "https://cocore.dev/v1";
 
 const KIND_TABS = ["all", "text", "image", "audio", "video", "test", "other"] as const;
 type ModelKind = (typeof KIND_TABS)[number];

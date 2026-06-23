@@ -226,9 +226,53 @@ function oauthRestoreSessionEffect(did: Did): Effect.Effect<RestoredSession, unk
   });
 }
 
+// DIAGNOSTIC: restore historically swallowed ANY error into `null`, so a dead
+// session was indistinguishable from a refresh-failure / store-miss / DPoP
+// problem. Capture the last failure reason per DID (logged + surfaced in the
+// 401 body) so we can finally see WHY a freshly-authed session won't restore.
+const lastRestoreErrorByDid = new Map<string, string>();
+
+export function lastRestoreError(did: string): string | undefined {
+  return lastRestoreErrorByDid.get(did);
+}
+
+/** Non-refreshing liveness check for a stored OAuth session.
+ *
+ * Reads the persisted blob straight from the session store and reports
+ * whether the user must re-authenticate — WITHOUT calling `restore()`.
+ * `restore()` refreshes an expired access token, which rotates the
+ * SINGLE-USE DPoP refresh token and writes the new one back; using it as a
+ * status probe therefore actively cannibalizes the very session it claims
+ * to observe (the AppView is the designated single refresher — see
+ * packages/appview/src/pds/write.ts — so the console must never rotate the
+ * token in parallel). A session is still restorable as long as a blob
+ * exists and carries a refresh token; only a missing blob (deleted after
+ * an `invalid_grant`) or a refresh-token-less blob means re-auth is
+ * actually required. This is honest (no false "all good" once the session
+ * is gone) and inert (no rotation), unlike the old restore-based probe. */
+export function sessionNeedsReauth(did: Did): boolean {
+  const stored = sessionStore.get(did);
+  if (!stored) return true;
+  return !stored.tokenSet?.refresh_token;
+}
+
 export const restoreAtprotoSessionEffect = (did: Did): Effect.Effect<RestoredSession | null> =>
   Effect.gen(function* () {
     const outcome = yield* Effect.either(oauthRestoreSessionEffect(did));
-    if (Either.isLeft(outcome)) return null;
+    if (Either.isLeft(outcome)) {
+      const reason =
+        outcome.left instanceof Error
+          ? `${outcome.left.name}: ${outcome.left.message}`
+          : String(outcome.left);
+      lastRestoreErrorByDid.set(did, reason.slice(0, 300));
+      console.error(`[atproto.restore] FAILED did=${did} reason=${reason}`);
+      return null;
+    }
+    if (outcome.right == null) {
+      lastRestoreErrorByDid.set(did, "restore returned null (no stored session)");
+      console.error(`[atproto.restore] null session did=${did} (no stored session)`);
+      return null;
+    }
+    lastRestoreErrorByDid.delete(did);
     return outcome.right;
   });

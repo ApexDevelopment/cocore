@@ -84,10 +84,10 @@ final class ModelManager: ObservableObject {
             case .failed(let m):
                 return "✗ \(m) failed to load. co/core runs MLX-format models only "
                     + "(mlx-community/… or another repo with MLX 4-bit weights); a stock "
-                    + "PyTorch repo won't load. See this machine on console.cocore.dev for details."
+                    + "PyTorch repo won't load. See this machine on cocore.dev for details."
             case .pending(let m):
                 return "Added \(m). First-time downloads can take a minute — watch this "
-                    + "machine on console.cocore.dev to confirm it starts serving."
+                    + "machine on cocore.dev to confirm it starts serving."
             }
         }
 

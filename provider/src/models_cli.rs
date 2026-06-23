@@ -398,7 +398,7 @@ fn check_model_addable(model: &str, venv_present: bool) -> Result<()> {
          can't load `{model}` and will publish supportedModels=[\"stub\"].\n\
          \n\
          Provision the venv with:\n  \
-         curl -fsSL console.cocore.dev/agent | sh\n\
+         curl -fsSL cocore.dev/agent | sh\n\
          \n\
          (Re-running the installer is idempotent — it won't redo work\n\
          that's already done.)"
@@ -676,7 +676,7 @@ fn report_outcomes(outcomes: &[(String, LoadOutcome)], log_path: &Path) {
              \x20     Check {} for the python traceback.\n\n\
              \x20     Common causes:\n\
              \x20       * Python venv at ~/.cocore/python is broken — reinstall via\n\
-             \x20         `curl -fsSL console.cocore.dev/agent/inference | sh`\n\
+             \x20         `curl -fsSL cocore.dev/agent/inference | sh`\n\
              \x20       * Model id is wrong or not on HuggingFace\n\
              \x20       * Out-of-memory during load (check Activity Monitor)\n\n\
              \x20     The plist was still updated; if you fix the underlying issue,\n\
@@ -909,7 +909,7 @@ mod tests {
             "error must point at the missing venv path: {msg}"
         );
         assert!(
-            msg.contains("console.cocore.dev/agent"),
+            msg.contains("cocore.dev/agent"),
             "error must give the recovery one-liner: {msg}"
         );
     }

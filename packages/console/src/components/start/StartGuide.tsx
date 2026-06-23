@@ -151,9 +151,7 @@ export function StartGuide() {
   }, [directory.data]);
 
   const baseUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/v1`
-      : "https://console.cocore.dev/v1";
+    typeof window !== "undefined" ? `${window.location.origin}/v1` : "https://cocore.dev/v1";
   const snippet = useMemo(
     () => buildSnippet(REQUESTER_SNIPPET_LANG, baseUrl, model),
     [baseUrl, model],
