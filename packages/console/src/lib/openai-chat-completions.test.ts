@@ -6,12 +6,16 @@
 import assert from "node:assert/strict";
 import { describe, test } from "vitest";
 
+import { MESSAGES_V1, parseEnvelope } from "@cocore/sdk/multimodal-envelope";
+
 import type { DispatchErrorCode, DispatchEvent } from "./inference-dispatch.server.ts";
 import {
+  buildJobInput,
   bufferedResponse,
   dispatchErrorToHttpResponse,
   normalizeMessageContent,
   parseRequest,
+  requestHasImages,
   streamingResponse,
 } from "./openai-chat-completions.server.ts";
 
@@ -35,8 +39,73 @@ describe("normalizeMessageContent", () => {
     assert.equal(normalizeMessageContent(undefined), "");
   });
 
-  test("rejects non-text parts when no text is present", () => {
+  test("rejects an unparseable image url with no text", () => {
+    // "x" is neither a data: URI nor http(s) — nothing we can turn into an
+    // image, and no text either, so the message is rejected.
     assert.equal(normalizeMessageContent([{ type: "image_url", image_url: { url: "x" } }]), null);
+  });
+
+  test("accepts a data-URI image as a structured part", () => {
+    const out = normalizeMessageContent([
+      { type: "text", text: "what is this?" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,aGVsbG8=" } },
+    ]);
+    assert.deepEqual(out, [
+      { type: "text", text: "what is this?" },
+      { type: "image", mime: "image/png", data: "aGVsbG8=" },
+    ]);
+  });
+
+  test("marks an http(s) image url as a remote part to fetch", () => {
+    const out = normalizeMessageContent([
+      { type: "image_url", image_url: { url: "https://example.com/cat.png" } },
+    ]);
+    assert.deepEqual(out, [{ type: "image_remote", url: "https://example.com/cat.png" }]);
+  });
+});
+
+describe("buildJobInput", () => {
+  test("text-only request keeps the legacy flattened bytes, no inputFormat", async () => {
+    const parsed = parseRequest({
+      model: "stub",
+      messages: [{ role: "user", content: "hello" }],
+    });
+    assert.notEqual(typeof parsed, "string");
+    if (typeof parsed === "string") return;
+    assert.equal(requestHasImages(parsed.messages), false);
+    const { payloadBytes, inputFormat } = await buildJobInput(parsed.messages);
+    assert.equal(inputFormat, undefined);
+    assert.equal(new TextDecoder().decode(payloadBytes), "user: hello");
+  });
+
+  test("image request produces a messages-v1 envelope", async () => {
+    const parsed = parseRequest({
+      model: "vlm",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "describe" },
+            { type: "image_url", image_url: { url: "data:image/png;base64,aGVsbG8=" } },
+          ],
+        },
+      ],
+    });
+    assert.notEqual(typeof parsed, "string");
+    if (typeof parsed === "string") return;
+    assert.equal(requestHasImages(parsed.messages), true);
+    const { payloadBytes, inputFormat } = await buildJobInput(parsed.messages);
+    assert.equal(inputFormat, MESSAGES_V1);
+    const env = parseEnvelope(payloadBytes);
+    assert.deepEqual(env.messages, [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "describe" },
+          { type: "image", mime: "image/png", data: "aGVsbG8=" },
+        ],
+      },
+    ]);
   });
 });
 

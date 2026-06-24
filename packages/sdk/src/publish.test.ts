@@ -110,7 +110,7 @@ describe("submitJob", () => {
       requesterDid: REQUESTER,
       inputs: {
         model: "test-model",
-        prompt: "hello",
+        inputBytes: new TextEncoder().encode("hello"),
         maxTokensOut: 256,
         priceCeiling: { amount: 100, currency: "USD" },
         exchangeDid: EXCHANGE,

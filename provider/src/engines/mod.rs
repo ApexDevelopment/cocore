@@ -143,13 +143,169 @@ impl Default for EngineRegistry {
     }
 }
 
+/// One part of a message's content. A text-only turn is a single
+/// [`Text`](ContentPart::Text); a vision turn interleaves text and
+/// images. Mirrors the OpenAI `chat.completions` content-part shape and
+/// the `messages-v1` envelope (see [`parse_messages_v1`]).
+#[derive(Debug, Clone)]
+pub enum ContentPart {
+    Text(String),
+    /// An inline image. `data_b64` is the base64 of the raw image bytes
+    /// (kept encoded so the subprocess engine can emit a `data:` URI and
+    /// the native engine can decode once, without a re-encode round-trip).
+    Image {
+        mime: String,
+        data_b64: String,
+    },
+}
+
+impl ContentPart {
+    /// Wipe any plaintext this part holds. Called by the inference
+    /// request's drop guard so a decrypted prompt/image never lingers.
+    pub fn zeroize(&mut self) {
+        use zeroize::Zeroize as _;
+        match self {
+            ContentPart::Text(s) => s.zeroize(),
+            ContentPart::Image { data_b64, mime } => {
+                data_b64.zeroize();
+                mime.zeroize();
+            }
+        }
+    }
+}
+
 /// One message in a chat conversation. Mirrors OpenAI's
-/// `chat.completions` message shape so we can pass it directly into
-/// vllm-mlx's `engine.chat(messages=...)` without translation.
+/// `chat.completions` message shape so we can pass it directly into the
+/// engine's `messages=...` without translation. Content is an ordered
+/// list of parts; the common text-only case is a single `Text` part.
 #[derive(Debug, Clone)]
 pub struct Message {
     pub role: String,
-    pub content: String,
+    pub content: Vec<ContentPart>,
+}
+
+impl Message {
+    /// Construct a text-only message — the legacy/raw-prompt path.
+    pub fn text(role: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            role: role.into(),
+            content: vec![ContentPart::Text(content.into())],
+        }
+    }
+
+    /// Concatenated text of all `Text` parts (image parts skipped).
+    /// Used by engines that only consume text (stub) and by the native
+    /// path's flattening when no image is present.
+    pub fn content_text(&self) -> String {
+        let mut out = String::new();
+        for p in &self.content {
+            if let ContentPart::Text(s) = p {
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(s);
+            }
+        }
+        out
+    }
+
+    /// True when this message carries at least one image part.
+    pub fn has_images(&self) -> bool {
+        self.content
+            .iter()
+            .any(|p| matches!(p, ContentPart::Image { .. }))
+    }
+
+    /// Wipe every part's plaintext.
+    pub fn zeroize_content(&mut self) {
+        for p in &mut self.content {
+            p.zeroize();
+        }
+    }
+}
+
+/// Parse the `messages-v1` canonical multimodal envelope (the UTF-8 bytes
+/// the requester sealed) into engine [`Message`]s. Mirrors the TS
+/// `parseEnvelope` (packages/sdk/src/multimodal-envelope.ts). The
+/// commitment is computed over `bytes` by the caller BEFORE this parse, so
+/// a parse failure never affects the receipt's `inputCommitment` — it just
+/// means we can't serve the job.
+pub fn parse_messages_v1(bytes: &[u8]) -> Result<Vec<Message>> {
+    use anyhow::{anyhow, bail};
+    let v: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|e| anyhow!("envelope is not valid JSON: {e}"))?;
+    let obj = v
+        .as_object()
+        .ok_or_else(|| anyhow!("envelope is not an object"))?;
+    match obj.get("v").and_then(|x| x.as_u64()) {
+        Some(1) => {}
+        other => bail!("unsupported envelope version: {other:?}"),
+    }
+    let raw_messages = obj
+        .get("messages")
+        .and_then(|x| x.as_array())
+        .ok_or_else(|| anyhow!("envelope.messages must be an array"))?;
+    let mut messages = Vec::with_capacity(raw_messages.len());
+    for (i, m) in raw_messages.iter().enumerate() {
+        let mo = m
+            .as_object()
+            .ok_or_else(|| anyhow!("message {i} is not an object"))?;
+        let role = mo
+            .get("role")
+            .and_then(|x| x.as_str())
+            .ok_or_else(|| anyhow!("message {i} role must be a string"))?
+            .to_string();
+        let content = mo
+            .get("content")
+            .ok_or_else(|| anyhow!("message {i} missing content"))?;
+        let parts = parse_content_parts(content, i)?;
+        messages.push(Message {
+            role,
+            content: parts,
+        });
+    }
+    Ok(messages)
+}
+
+fn parse_content_parts(content: &serde_json::Value, i: usize) -> Result<Vec<ContentPart>> {
+    use anyhow::{anyhow, bail};
+    if let Some(s) = content.as_str() {
+        return Ok(vec![ContentPart::Text(s.to_string())]);
+    }
+    let arr = content
+        .as_array()
+        .ok_or_else(|| anyhow!("message {i} content must be string or array"))?;
+    let mut parts = Vec::with_capacity(arr.len());
+    for (j, p) in arr.iter().enumerate() {
+        let po = p
+            .as_object()
+            .ok_or_else(|| anyhow!("message {i} part {j} is not an object"))?;
+        match po.get("type").and_then(|x| x.as_str()) {
+            Some("text") => {
+                let text = po
+                    .get("text")
+                    .and_then(|x| x.as_str())
+                    .ok_or_else(|| anyhow!("message {i} text part {j} missing text"))?;
+                parts.push(ContentPart::Text(text.to_string()));
+            }
+            Some("image") => {
+                let mime = po
+                    .get("mime")
+                    .and_then(|x| x.as_str())
+                    .ok_or_else(|| anyhow!("message {i} image part {j} missing mime"))?;
+                let data = po
+                    .get("data")
+                    .and_then(|x| x.as_str())
+                    .ok_or_else(|| anyhow!("message {i} image part {j} missing data"))?;
+                parts.push(ContentPart::Image {
+                    mime: mime.to_string(),
+                    data_b64: data.to_string(),
+                });
+            }
+            other => bail!("message {i} part {j} has unknown type: {other:?}"),
+        }
+    }
+    Ok(parts)
 }
 
 /// Inputs to a single inference call.
@@ -210,10 +366,11 @@ pub fn model_prefills_think(model: &str) -> bool {
         })
 }
 
-/// Substrings that mark a vision / multimodal (image-input) model. The
-/// subprocess inference path is text-only (vllm-mlx serves text LLMs and the
-/// chat sends no images), so these can't be served — loading one just makes the
-/// Python child exit with status 1 and fails provisioning. Mirrors the console's
+/// Substrings that mark a vision / multimodal (image-input) model. These ARE
+/// served now: the subprocess engine passes `--vision` (vllm-mlx `force_mllm`)
+/// for these ids so the multimodal stack loads, and the native engine loads a
+/// VLM in-process. So this is a capability detector that selects the
+/// vision-capable load path, NOT an exclusion. Mirrors the console's
 /// `isVisionModel` (packages/console/src/lib/model-directory.server.ts).
 const VISION_MODEL_MARKERS: &[&str] = &[
     "vl",
@@ -657,6 +814,92 @@ mod tests {
         assert!(!model_prefills_think(
             "mlx-community/Qwen2.5-3B-Instruct-4bit"
         ));
+    }
+
+    #[test]
+    fn parse_messages_v1_text_only() {
+        let bytes = br#"{"v":1,"messages":[{"role":"user","content":"hello"}]}"#;
+        let msgs = parse_messages_v1(bytes).expect("parse");
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].role, "user");
+        assert!(!msgs[0].has_images());
+        assert_eq!(msgs[0].content_text(), "hello");
+    }
+
+    #[test]
+    fn parse_messages_v1_with_image_parts() {
+        let bytes = br#"{"v":1,"messages":[{"role":"user","content":[{"type":"text","text":"what is this?"},{"type":"image","mime":"image/png","data":"aGVsbG8="}]}]}"#;
+        let msgs = parse_messages_v1(bytes).expect("parse");
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].has_images());
+        assert_eq!(msgs[0].content_text(), "what is this?");
+        match &msgs[0].content[1] {
+            ContentPart::Image { mime, data_b64 } => {
+                assert_eq!(mime, "image/png");
+                assert_eq!(data_b64, "aGVsbG8=");
+            }
+            _ => panic!("expected image part"),
+        }
+    }
+
+    /// Cross-language parity: the exact canonical envelope bytes the TS SDK
+    /// produces (packages/sdk/src/multimodal-envelope.test.ts) must parse here
+    /// AND hash to the same commitment. A divergence in either canonicalizer is
+    /// caught by this + the matching TS test sharing one fixture.
+    #[test]
+    fn messages_v1_cross_language_fixture() {
+        use sha2::{Digest, Sha256};
+        const CANONICAL: &str = r#"{"messages":[{"content":[{"text":"hi","type":"text"},{"data":"aGVsbG8=","mime":"image/png","type":"image"}],"role":"user"}],"v":1}"#;
+        const EXPECTED_SHA256: &str =
+            "3378ffa01b3a72e7210272f2a4ea38f2abfb41662cee6ab11cfc3ac20416b449";
+
+        // Parses into the expected multimodal message.
+        let msgs = parse_messages_v1(CANONICAL.as_bytes()).expect("parse fixture");
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].has_images());
+        assert_eq!(msgs[0].content_text(), "hi");
+
+        // The commitment the provider would compute over these sealed bytes
+        // equals the one the requester computed in TS.
+        let hex = hex::encode(Sha256::digest(CANONICAL.as_bytes()));
+        assert_eq!(hex, EXPECTED_SHA256);
+    }
+
+    #[test]
+    fn parse_messages_v1_rejects_unknown_version() {
+        let bytes = br#"{"v":2,"messages":[]}"#;
+        assert!(parse_messages_v1(bytes).is_err());
+    }
+
+    #[test]
+    fn parse_messages_v1_rejects_unknown_part_type() {
+        let bytes =
+            br#"{"v":1,"messages":[{"role":"user","content":[{"type":"audio","data":"x"}]}]}"#;
+        assert!(parse_messages_v1(bytes).is_err());
+    }
+
+    #[test]
+    fn zeroize_wipes_text_and_image_parts() {
+        let mut m = Message {
+            role: "user".into(),
+            content: vec![
+                ContentPart::Text("secret".into()),
+                ContentPart::Image {
+                    mime: "image/png".into(),
+                    data_b64: "aGVsbG8=".into(),
+                },
+            ],
+        };
+        m.zeroize_content();
+        for p in &m.content {
+            match p {
+                ContentPart::Text(s) => assert!(s.is_empty()),
+                ContentPart::Image { mime, data_b64 } => {
+                    assert!(mime.is_empty());
+                    assert!(data_b64.is_empty());
+                }
+            }
+        }
     }
 
     #[test]

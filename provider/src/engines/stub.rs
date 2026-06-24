@@ -30,7 +30,7 @@ impl Engine for StubEngine {
         let prompt_bytes: Vec<u8> = request
             .messages
             .iter()
-            .map(|m| format!("{}: {}", m.role, m.content))
+            .map(|m| format!("{}: {}", m.role, m.content_text()))
             .collect::<Vec<_>>()
             .join("\n")
             .into_bytes();

@@ -38,6 +38,15 @@ mod ffi {
             handle: *mut c_void,
             prompt: *const c_char,
             prompt_len: usize,
+            // Inline images for vision models, as parallel arrays of raw
+            // (already base64-decoded) image-file bytes. `image_count` is 0
+            // for a text-only request, in which case the pointers may be
+            // null. Swift reconstructs each `Data` → `CIImage` and feeds it
+            // to the VLM as a `UserInput` image. The mime is recoverable from
+            // the bytes themselves (CIImage auto-detects), so it isn't passed.
+            image_ptrs: *const *const u8,
+            image_lens: *const usize,
+            image_count: usize,
             max_tokens: i32,
             on_delta: Option<extern "C" fn(*const c_char, usize, *mut c_void)>,
             ctx: *mut c_void,
@@ -175,16 +184,38 @@ impl Engine for NativeMlxEngine {
         request: &GenerateRequest,
         on_delta: &mut dyn FnMut(DeltaChannel, &str) -> Result<()>,
     ) -> Result<GenerateResponse> {
+        use super::ContentPart;
+        use base64::Engine as _;
         use std::os::raw::{c_char, c_void};
 
         // The agent flattens the request to a single user turn; the Swift side
-        // applies the model's chat template.
+        // applies the model's chat template. Text parts are concatenated;
+        // image parts are decoded from base64 into raw file bytes and passed
+        // alongside so a VLM model gets its images in-process.
         let prompt: String = request
             .messages
             .iter()
-            .map(|m| m.content.as_str())
+            .map(|m| m.content_text())
             .collect::<Vec<_>>()
             .join("\n");
+
+        // Decode every image part to raw bytes. Kept in `image_bufs` (owned)
+        // for the duration of the FFI call; the parallel pointer/len arrays
+        // borrow from it. base64 decode failure aborts the request rather than
+        // silently dropping an image the requester paid to have considered.
+        let mut image_bufs: Vec<Vec<u8>> = Vec::new();
+        for m in &request.messages {
+            for part in &m.content {
+                if let ContentPart::Image { data_b64, .. } = part {
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(data_b64.as_bytes())
+                        .map_err(|e| anyhow::anyhow!("invalid base64 image data: {e}"))?;
+                    image_bufs.push(bytes);
+                }
+            }
+        }
+        let image_ptrs: Vec<*const u8> = image_bufs.iter().map(|b| b.as_ptr()).collect();
+        let image_lens: Vec<usize> = image_bufs.iter().map(|b| b.len()).collect();
 
         // Trampoline: the C callback forwards each decoded delta to the Rust
         // closure. Decoded tokens may carry inline <think>...</think> markers,
@@ -234,6 +265,17 @@ impl Engine for NativeMlxEngine {
                 guard.0,
                 prompt.as_ptr() as *const c_char,
                 prompt.len(),
+                if image_ptrs.is_empty() {
+                    std::ptr::null()
+                } else {
+                    image_ptrs.as_ptr()
+                },
+                if image_lens.is_empty() {
+                    std::ptr::null()
+                } else {
+                    image_lens.as_ptr()
+                },
+                image_bufs.len(),
                 request.max_tokens as i32,
                 Some(trampoline),
                 &mut ctx as *mut Ctx as *mut c_void,
@@ -306,10 +348,10 @@ mod tests {
 
         let req = GenerateRequest {
             model: "qwen".into(),
-            messages: vec![Message {
-                role: "user".into(),
-                content: "In one sentence, what is the Apple Secure Enclave?".into(),
-            }],
+            messages: vec![Message::text(
+                "user",
+                "In one sentence, what is the Apple Secure Enclave?",
+            )],
             max_tokens: 48,
             temperature: None,
             top_p: None,

@@ -413,6 +413,13 @@ impl SubprocessEngine {
         );
 
         let mut cmd = Command::new(&self.venv_python);
+        // No `--vision` flag: vllm-mlx's `load_model` auto-detects MLLM vs LLM
+        // from the model's own config, and a vision model loads through the
+        // multimodal path on its own (the same /v1/chat/completions endpoint
+        // then accepts image_url parts). Forcing MLLM from the model id was
+        // brittle — a merge whose id contains "vl" but whose config carries no
+        // (or an incomplete) vision_config would be force-loaded as multimodal
+        // and crash in mlx_vlm, when auto-detect would have loaded it as text.
         cmd.arg(&wrapper)
             .arg("--model")
             .arg(&self.model_id)
@@ -678,6 +685,31 @@ impl SubprocessEngine {
         Ok(body_bytes.to_vec())
     }
 
+    /// Render a message's content into the OpenAI `chat.completions`
+    /// shape the engine server accepts. A text-only message keeps the
+    /// scalar-string form (byte-identical to the historical text path);
+    /// a message with images becomes the array-of-parts form, with each
+    /// image emitted as an `image_url` data URI — exactly what mlx-vlm's
+    /// OpenAI-compatible server consumes.
+    fn render_content(m: &crate::engines::Message) -> serde_json::Value {
+        use crate::engines::ContentPart;
+        if !m.has_images() {
+            return serde_json::Value::String(m.content_text());
+        }
+        let parts: Vec<serde_json::Value> = m
+            .content
+            .iter()
+            .map(|p| match p {
+                ContentPart::Text(text) => serde_json::json!({ "type": "text", "text": text }),
+                ContentPart::Image { mime, data_b64 } => serde_json::json!({
+                    "type": "image_url",
+                    "image_url": { "url": format!("data:{mime};base64,{data_b64}") },
+                }),
+            })
+            .collect();
+        serde_json::Value::Array(parts)
+    }
+
     fn build_chat_body(request: &GenerateRequest, stream: bool) -> Result<serde_json::Value> {
         let messages: Vec<serde_json::Value> = request
             .messages
@@ -685,7 +717,7 @@ impl SubprocessEngine {
             .map(|m| {
                 serde_json::json!({
                     "role": m.role,
-                    "content": m.content,
+                    "content": Self::render_content(m),
                 })
             })
             .collect();
@@ -1102,5 +1134,55 @@ mod tests {
             .collect();
         assert_eq!(reasoning, "why");
         assert_eq!(content, "because");
+    }
+
+    #[test]
+    fn build_chat_body_emits_scalar_content_for_text() {
+        let req = GenerateRequest {
+            model: "m".into(),
+            messages: vec![crate::engines::Message::text("user", "hi")],
+            max_tokens: 8,
+            temperature: None,
+            top_p: None,
+        };
+        let body = SubprocessEngine::build_chat_body(&req, false).unwrap();
+        // Text-only stays a scalar string — byte-identical to the legacy path.
+        assert_eq!(body["messages"][0]["content"], serde_json::json!("hi"));
+    }
+
+    #[test]
+    fn build_chat_body_emits_image_url_parts_for_vision() {
+        use crate::engines::{ContentPart, Message};
+        let req = GenerateRequest {
+            model: "vlm".into(),
+            messages: vec![Message {
+                role: "user".into(),
+                content: vec![
+                    ContentPart::Text("describe".into()),
+                    ContentPart::Image {
+                        mime: "image/png".into(),
+                        data_b64: "aGVsbG8=".into(),
+                    },
+                ],
+            }],
+            max_tokens: 8,
+            temperature: None,
+            top_p: None,
+        };
+        let body = SubprocessEngine::build_chat_body(&req, false).unwrap();
+        let parts = body["messages"][0]["content"]
+            .as_array()
+            .expect("array content");
+        assert_eq!(
+            parts[0],
+            serde_json::json!({ "type": "text", "text": "describe" })
+        );
+        assert_eq!(
+            parts[1],
+            serde_json::json!({
+                "type": "image_url",
+                "image_url": { "url": "data:image/png;base64,aGVsbG8=" },
+            }),
+        );
     }
 }

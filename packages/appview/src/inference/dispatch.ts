@@ -43,7 +43,15 @@ const runtime = makeRuntime({ serviceName: "cocore-appview" });
 export interface DispatchInputs {
   did: string;
   model: string;
+  /** Legacy text path: the flattened prompt. Used to derive the sealed
+   *  bytes when `payloadBytes` is absent. */
   prompt: string;
+  /** Multimodal path: the exact bytes to seal + commit over (the canonical
+   *  messages-v1 envelope). When present, sealed/hashed verbatim and
+   *  `prompt` is ignored. */
+  payloadBytes?: Uint8Array;
+  /** "messages-v1" when `payloadBytes` is the multimodal envelope. */
+  inputFormat?: "messages-v1";
   maxTokensOut: number;
   priceCeiling: { amount: number; currency: string };
   targetProviderDid?: string;
@@ -391,6 +399,11 @@ export async function* runDispatch(
   input: DispatchInputs,
   deps: DispatchDeps,
 ): AsyncGenerator<DispatchEvent> {
+  // The exact bytes sealed to the provider + committed over. Multimodal
+  // requests pass `payloadBytes` (the canonical envelope); text requests use
+  // the UTF-8 of the flattened prompt.
+  const inputBytes = input.payloadBytes ?? new TextEncoder().encode(input.prompt);
+
   // 1. Publish job + auth to the requester's PDS via the injected
   //    transport (the AppView-owned OAuth session for input.did).
   let submitted;
@@ -400,7 +413,8 @@ export async function* runDispatch(
       requesterDid: input.did,
       inputs: {
         model: input.model,
-        prompt: input.prompt,
+        inputBytes,
+        ...(input.inputFormat ? { inputFormat: input.inputFormat } : {}),
         maxTokensOut: input.maxTokensOut,
         priceCeiling: input.priceCeiling,
         exchangeDid: deps.exchangeDid,
@@ -471,12 +485,14 @@ export async function* runDispatch(
     }
     const candidateEphemeral = nacl.box.keyPair();
     const candidateCiphertext = sealToProvider(
-      new TextEncoder().encode(input.prompt),
+      inputBytes,
       candidatePubKey,
       candidateEphemeral.secretKey,
     );
 
-    // 4. POST advisor /jobs, pinned to this candidate.
+    // 4. POST advisor /jobs, pinned to this candidate. `inputFormat` tells the
+    //    provider how to read the opened bytes (raw prompt vs messages-v1
+    //    envelope); omitted for the text path.
     const req = await fetch(`${deps.advisorUrl}/jobs`, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "text/event-stream" },
@@ -488,6 +504,7 @@ export async function* runDispatch(
         model: input.model,
         maxTokensOut: input.maxTokensOut,
         ciphertext: [...candidateCiphertext],
+        ...(input.inputFormat ? { inputFormat: input.inputFormat } : {}),
         sessionId,
         targetProviderDid: candidate.did,
       }),

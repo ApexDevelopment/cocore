@@ -2055,26 +2055,11 @@ fn build_engines(
         }
     }
 
-    // Vision / multimodal models can't be served by the text-only inference
-    // path — loading one just makes the Python child exit 1 and (if it's the
-    // only model) bricks provisioning. Skip them up front so they're surfaced
-    // cleanly, like the RAM-floor skips, instead of burning 3 doomed attempts.
-    let mut unsupported_vision: Vec<String> = vec![];
-    let configured: Vec<String> = configured
-        .into_iter()
-        .filter(|model| {
-            if cocore_provider::engines::is_vision_model(model) {
-                tracing::warn!(
-                    model = %model,
-                    "skipping vision/multimodal model — the text-only inference path can't serve it; pick a text MLX model"
-                );
-                unsupported_vision.push(model.clone());
-                false
-            } else {
-                true
-            }
-        })
-        .collect();
+    // Vision / multimodal models ARE served now: vllm-mlx loads them through
+    // its multimodal path (the subprocess engine passes `--vision`/force_mllm
+    // for vision model ids), and the same /v1/chat/completions endpoint accepts
+    // image_url content parts. So they're no longer skipped here — they load
+    // and fail (or succeed) like any other model.
 
     let mut failed: Vec<String> = vec![];
     let mut saw_venv_missing = false;
@@ -2104,17 +2089,16 @@ fn build_engines(
         }
     }
 
-    if failed.is_empty() && too_large.is_empty() && unsupported_vision.is_empty() {
+    if failed.is_empty() && too_large.is_empty() {
         return (registry, None);
     }
 
     // The fault's `models` field lists every model that won't be served
-    // this run — the ones that tried-and-failed, the ones we skipped as too
-    // large for RAM, and the vision models the text path can't serve — so the
-    // console shows the operator the full set missing from `supportedModels`.
+    // this run — the ones that tried-and-failed and the ones we skipped as too
+    // large for RAM — so the console shows the operator the full set missing
+    // from `supportedModels`.
     let mut all_unserved = failed.clone();
     all_unserved.extend(too_large.iter().cloned());
-    all_unserved.extend(unsupported_vision.iter().cloned());
 
     // Build a curated, content-safe fault for the console. Detailed
     // tracebacks already went to `tracing` inside the recovery loop;
@@ -2137,6 +2121,34 @@ fn build_engines(
                  to (re)provision the environment — `curl -fsSL https://cocore.dev/agent | sh` \
                  — then start serving again.",
                 venv_python.display(),
+                failed.join(", "),
+            ),
+            models: all_unserved,
+            at: chrono::Utc::now(),
+        }
+    } else if !failed.is_empty() && is_vision_config_failure(last_err.as_deref()) {
+        // A vision/multimodal model whose config the multimodal runtime
+        // (mlx_vlm) couldn't parse — the "not in MLX format" message below would
+        // be actively wrong here (the weights ARE MLX; the vision_config is the
+        // problem). This is overwhelmingly a merged / re-quantized VLM whose
+        // vision_config was stripped or left incomplete, so it can't load as a
+        // vision model in any client. Point the operator at a known-good VLM.
+        tracing::warn!(
+            models = ?failed,
+            last_error = %last_err.as_deref().unwrap_or("(none captured)"),
+            "vision model failed to load — incomplete vision_config; serving stub only"
+        );
+        EngineFault {
+            code: "model-vision-incompatible".to_string(),
+            message: format!(
+                "The vision/multimodal model(s) [{}] couldn't load: the runtime rejected \
+                 their image config (an incomplete `vision_config`). The weights are MLX, \
+                 but this is almost always a merged or re-quantized VLM whose vision config \
+                 was dropped during conversion — so it can't be served as a vision model in \
+                 any tool, not just co/core. The machine is online but only serving the \
+                 no-op `stub` engine. Fix: pick a standard MLX vision model — e.g. \
+                 `mlx-community/Qwen2.5-VL-7B-Instruct-4bit` or \
+                 `mlx-community/Qwen2.5-VL-3B-Instruct-4bit` — then start serving again.",
                 failed.join(", "),
             ),
             models: all_unserved,
@@ -2169,7 +2181,7 @@ fn build_engines(
             models: all_unserved,
             at: chrono::Utc::now(),
         }
-    } else if !too_large.is_empty() {
+    } else {
         // Only RAM-floor skips — nothing actually tried to load.
         tracing::warn!(
             models = ?too_large,
@@ -2187,26 +2199,6 @@ fn build_engines(
                  know this model fits, set COCORE_IGNORE_RAM_FLOOR=1 and start serving again.",
                 too_large.join(", "),
                 ram_gb,
-            ),
-            models: all_unserved,
-            at: chrono::Utc::now(),
-        }
-    } else {
-        // Only vision/multimodal models — skipped before any load attempt.
-        tracing::warn!(
-            models = ?unsupported_vision,
-            "configured model(s) are vision/multimodal; the text-only path can't serve them — serving stub only"
-        );
-        EngineFault {
-            code: "model-vision-unsupported".to_string(),
-            message: format!(
-                "The configured model(s) [{}] are vision / multimodal (image-input) models. \
-                 cocore's inference path is text-only — the chat sends no images and the \
-                 runtime serves text LLMs — so they can't be served and were skipped. The \
-                 machine is online but only serving the no-op `stub` engine, so it won't be \
-                 matched to real inference jobs. Fix: pick a text MLX model (e.g. a \
-                 `*-Instruct` or `*-Thinking` MLX build) and start serving again.",
-                unsupported_vision.join(", "),
             ),
             models: all_unserved,
             at: chrono::Utc::now(),
@@ -2237,6 +2229,19 @@ const ENGINE_START_MAX_ATTEMPTS: u32 = 3;
 /// wait a little longer each time for a concurrent venv install / weight
 /// download to make progress.
 const ENGINE_START_BACKOFF: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// Whether an engine-start error is the "this VLM's image config is broken"
+/// failure — the multimodal loader (mlx_vlm) choking on an incomplete
+/// `vision_config`. Detected from the captured subprocess stderr, which the
+/// startup bail embeds verbatim. Drives a precise operator message instead of
+/// the generic "not in MLX format" one (which is wrong: the weights ARE MLX).
+fn is_vision_config_failure(last_err: Option<&str>) -> bool {
+    let Some(e) = last_err else { return false };
+    // `VisionConfig` is the mlx_vlm class in the traceback; `vision_config` is
+    // the config key it failed to build. Either is a strong, content-safe
+    // signal (the ring buffer carries only library tracebacks at startup).
+    e.contains("VisionConfig") || e.contains("vision_config")
+}
 
 /// Try to start one model's inference subprocess, retrying transient
 /// failures with backoff. Re-checks for the venv interpreter on every
@@ -2385,6 +2390,33 @@ mod apply_desired_tier_tests {
         let mut v = serde_json::json!({});
         assert!(!apply_desired_tier(&mut v, false)); // absent == off already
         assert!(apply_desired_tier(&mut v, true)); // off -> on
+    }
+}
+
+#[cfg(test)]
+mod vision_fault_tests {
+    use super::is_vision_config_failure;
+
+    #[test]
+    fn detects_mlx_vlm_visionconfig_failure() {
+        let err = "inference subprocess for X exited during startup with exit status: 1\n  [stderr] TypeError: VisionConfig.__init__() missing 6 required positional arguments";
+        assert!(is_vision_config_failure(Some(err)));
+    }
+
+    #[test]
+    fn detects_vision_config_key_failure() {
+        assert!(is_vision_config_failure(Some("KeyError: 'vision_config'")));
+    }
+
+    #[test]
+    fn ignores_unrelated_failures_and_none() {
+        assert!(!is_vision_config_failure(Some(
+            "OSError: out of memory loading weights"
+        )));
+        assert!(!is_vision_config_failure(Some(
+            "ModuleNotFoundError: vllm_mlx"
+        )));
+        assert!(!is_vision_config_failure(None));
     }
 }
 

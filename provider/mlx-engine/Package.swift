@@ -31,6 +31,7 @@ let package = Package(
             name: "CoCoreMLX",
             dependencies: [
                 .product(name: "MLXLLM", package: "mlx-swift-examples"),
+                .product(name: "MLXVLM", package: "mlx-swift-examples"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
             ],
             path: "Sources/CoCoreMLX",

@@ -193,6 +193,17 @@ def main() -> None:
             "PID at startup for older agents that don't pass it."
         ),
     )
+    ap.add_argument(
+        "--vision",
+        action="store_true",
+        help=(
+            "Force the multimodal (MLLM) load path (vllm-mlx force_mllm). Not "
+            "normally needed: load_model auto-detects MLLM vs LLM from the "
+            "model's config, so a real vision model loads multimodal on its own "
+            "and the /v1/chat/completions endpoint accepts image_url parts. This "
+            "is a manual override for a VLM that auto-detection misses."
+        ),
+    )
     args = ap.parse_args()
 
     socket_path = Path(args.uds)
@@ -251,8 +262,12 @@ def main() -> None:
     # get_engine() at request time. This is the slow phase — 30-90s
     # for a 4-bit Qwen 7B on first cold load, mostly weight mmap
     # into Metal-managed buffers.
-    print(f"[cocore-engine] loading model {args.model!r}...", flush=True)
-    srv.load_model(args.model)
+    print(
+        f"[cocore-engine] loading model {args.model!r}"
+        f"{' (vision/mllm)' if args.vision else ''}...",
+        flush=True,
+    )
+    srv.load_model(args.model, force_mllm=args.vision)
     print(f"[cocore-engine] model loaded; binding {socket_path}", flush=True)
 
     # SIGTERM handler that exits cleanly. uvicorn installs its own

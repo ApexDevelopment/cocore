@@ -34,6 +34,11 @@ public func cocore_mlx_generate(
     _ handle: UnsafeMutableRawPointer?,
     _ prompt: UnsafePointer<CChar>?,
     _ promptLen: Int,
+    // Parallel arrays of inline image bytes (already base64-decoded by Rust).
+    // `imageCount` is 0 for a text-only request, where the pointers may be null.
+    _ imagePtrs: UnsafePointer<UnsafePointer<UInt8>?>?,
+    _ imageLens: UnsafePointer<Int>?,
+    _ imageCount: Int,
     _ maxTokens: Int32,
     _ onDelta: (@convention(c) (UnsafePointer<CChar>?, Int, UnsafeMutableRawPointer?) -> Void)?,
     _ ctx: UnsafeMutableRawPointer?,
@@ -47,13 +52,24 @@ public func cocore_mlx_generate(
     let promptStr = prompt.withMemoryRebound(to: UInt8.self, capacity: promptLen) {
         String(decoding: UnsafeBufferPointer(start: $0, count: promptLen), as: UTF8.self)
     }
+    // Copy each inline image into an owned `Data`. The borrow only has to last
+    // until generation reads it, but copying keeps the async boundary safe.
+    var images: [Data] = []
+    if imageCount > 0, let imagePtrs, let imageLens {
+        for i in 0..<imageCount {
+            guard let p = imagePtrs[i] else { continue }
+            images.append(Data(bytes: p, count: imageLens[i]))
+        }
+    }
     let sem = DispatchSemaphore(value: 0)
     var tin = 0
     var tout = 0
     var failure: Error?
     Task {
         do {
-            (tin, tout) = try await engine.generate(prompt: promptStr, maxTokens: Int(maxTokens)) {
+            (tin, tout) = try await engine.generate(
+                prompt: promptStr, images: images, maxTokens: Int(maxTokens)
+            ) {
                 delta in
                 var bytes = Array(delta.utf8)
                 bytes.withUnsafeMutableBufferPointer { buf in

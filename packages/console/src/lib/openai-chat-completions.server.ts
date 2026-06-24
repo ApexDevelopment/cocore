@@ -9,15 +9,37 @@
 // single error-mapping table (the source of truth for which
 // DispatchErrorCode → which HTTP status the OpenAI client sees).
 
+import {
+  buildEnvelopeBytes,
+  type EnvelopeContentPart,
+  type EnvelopeImagePart,
+  type EnvelopeMessage,
+  hasImageParts,
+  MESSAGES_V1,
+} from "@cocore/sdk/multimodal-envelope";
+
 import type {
   DispatchErrorCode,
   DispatchEvent,
   ProviderCredit,
 } from "@/lib/inference-dispatch.server.ts";
 
+/** A remote (http/https) image that still needs fetching before it can go
+ *  into the sealed envelope. Produced by the sync `normalizeMessageContent`
+ *  and resolved to an inline `EnvelopeImagePart` by `resolveImages`. */
+interface RemoteImagePart {
+  type: "image_remote";
+  url: string;
+}
+
+/** Content after sync normalization: a plain string (text-only), or an
+ *  ordered list of parts where images may still be remote. */
+type NormalizedPart = EnvelopeContentPart | RemoteImagePart;
+type NormalizedContent = string | NormalizedPart[];
+
 interface ChatMessage {
   role: string;
-  content: string;
+  content: NormalizedContent;
 }
 
 export interface OpenAiChatRequest {
@@ -40,38 +62,85 @@ const DEFAULT_MAX_TOKENS = 1024;
 // drive an uncapped per-call spend. Generous for real chat use; reject
 // early with a 400 past them rather than sealing + dispatching a giant job.
 const MAX_MESSAGES = 256;
-const MAX_PROMPT_BYTES = 1024 * 1024; // 1 MiB of total message content
+const MAX_PROMPT_BYTES = 1024 * 1024; // 1 MiB of total TEXT content
+// Images are inlined (base64) into the sealed envelope, so they need their
+// own, larger budget separate from text. 20 MiB of decoded image bytes
+// covers several high-res photos while still bounding a single request
+// (the advisor's /jobs body cap is sized to match — see jobs.ts).
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_OUTPUT_TOKENS = 32_768;
 
-/** Normalize OpenAI `message.content` into plain text. Accepts the
- *  string form (simple clients) and the array-of-parts form that
- *  Cursor and the modern OpenAI SDK emit:
- *    [{ "type": "text", "text": "…" }]
- *  Image / file parts are rejected — cocore providers are text-only
- *  today. */
-export function normalizeMessageContent(content: unknown): string | null {
+/** Parse an OpenAI `image_url` URL into an envelope image part (data
+ *  URIs, resolved inline) or a remote part to fetch later (http/https).
+ *  Returns null for anything we can't turn into an image. */
+function parseImageUrl(url: unknown): EnvelopeImagePart | RemoteImagePart | null {
+  if (typeof url !== "string" || url.length === 0) return null;
+  // data:<mime>;base64,<payload>
+  const dataMatch = /^data:([^;,]+);base64,(.*)$/s.exec(url);
+  if (dataMatch) {
+    const mime = dataMatch[1]!;
+    const data = dataMatch[2]!;
+    if (!mime.startsWith("image/")) return null;
+    return { type: "image", mime, data };
+  }
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return { type: "image_remote", url };
+  }
+  return null;
+}
+
+/** Normalize OpenAI `message.content` into the canonical form. Accepts:
+ *    * the plain string form (simple clients),
+ *    * the array-of-parts form Cursor / the modern OpenAI SDK emit:
+ *        [{ type: "text", text: "…" },
+ *         { type: "image_url", image_url: { url: "data:image/png;base64,…" } }]
+ *  A text-only message collapses to a plain string (byte-identical to the
+ *  legacy path). A message carrying any image returns an ordered parts
+ *  array (images may still be remote — see `resolveImages`). Returns null
+ *  for a part shape we can't interpret (e.g. an unknown type, or an
+ *  unparseable image url). */
+export function normalizeMessageContent(content: unknown): NormalizedContent | null {
   if (typeof content === "string") return content;
   if (content === null || content === undefined) return "";
   if (!Array.isArray(content)) return null;
 
-  const textParts: string[] = [];
-  let sawNonText = false;
+  const parts: NormalizedPart[] = [];
+  let sawImage = false;
+  let sawUnsupported = false;
   for (const part of content) {
     if (!part || typeof part !== "object") continue;
-    const p = part as { type?: unknown; text?: unknown };
+    const p = part as { type?: unknown; text?: unknown; image_url?: unknown };
     if (p.type === "text" && typeof p.text === "string") {
-      textParts.push(p.text);
+      parts.push({ type: "text", text: p.text });
       continue;
     }
-    if (typeof p.type === "string" && p.type !== "text") {
-      sawNonText = true;
+    if (p.type === "image_url") {
+      const urlObj = p.image_url as { url?: unknown } | undefined;
+      const img = parseImageUrl(urlObj?.url);
+      if (!img) {
+        sawUnsupported = true;
+        continue;
+      }
+      parts.push(img);
+      sawImage = true;
+      continue;
+    }
+    if (typeof p.type === "string") {
+      sawUnsupported = true;
     }
   }
-  if (textParts.length > 0) return textParts.join("\n");
-  if (sawNonText) {
-    return null;
-  }
-  return "";
+  // Any image present → keep the structured parts (multimodal path).
+  if (sawImage) return parts;
+  // No image: an unsupported/unparseable part with no text is a reject,
+  // matching the historical text-only contract.
+  if (sawUnsupported) return null;
+  // Text-only: collapse to a plain string so the sealed bytes are
+  // identical to the legacy flattened path.
+  const text = parts
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("\n");
+  return text;
 }
 
 export function parseRequest(raw: OpenAiChatRequest): ParsedRequest | string {
@@ -84,17 +153,34 @@ export function parseRequest(raw: OpenAiChatRequest): ParsedRequest | string {
   }
   const messages: ChatMessage[] = [];
   let promptBytes = 0;
+  let imageBytes = 0;
   for (const m of raw.messages as Array<{ role?: unknown; content?: unknown }>) {
     if (typeof m.role !== "string") {
       return "each message must include a string role";
     }
     const content = normalizeMessageContent(m.content);
     if (content === null) {
-      return 'message content must be a string or an array of { type: "text", text: string } parts (image/file parts are not supported)';
+      return 'message content must be a string or an array of { type: "text", text } / { type: "image_url", image_url: { url } } parts';
     }
-    promptBytes += Buffer.byteLength(content, "utf-8");
+    // Budget text and images separately — images are large and inlined.
+    if (typeof content === "string") {
+      promptBytes += Buffer.byteLength(content, "utf-8");
+    } else {
+      for (const part of content) {
+        if (part.type === "text") {
+          promptBytes += Buffer.byteLength(part.text, "utf-8");
+        } else if (part.type === "image") {
+          // base64 → decoded size ≈ len * 3/4.
+          imageBytes += Math.floor((part.data.length * 3) / 4);
+        }
+        // remote images are budgeted after fetch in resolveImages.
+      }
+    }
     if (promptBytes > MAX_PROMPT_BYTES) {
       return `prompt too large (max ${MAX_PROMPT_BYTES} bytes)`;
+    }
+    if (imageBytes > MAX_IMAGE_BYTES) {
+      return `images too large (max ${MAX_IMAGE_BYTES} bytes total)`;
     }
     messages.push({ role: m.role, content });
   }
@@ -116,11 +202,87 @@ export function parseRequest(raw: OpenAiChatRequest): ParsedRequest | string {
   return { model: raw.model, messages, stream, maxTokens };
 }
 
-/** Flatten OpenAI `messages` into a single prompt string. The
- *  provider stub treats this as opaque text; once the real engine
- *  lands it'll re-template per-model. */
-export function flattenMessages(messages: ChatMessage[]): string {
-  return messages.map((m) => `${m.role}: ${m.content}`).join("\n");
+/** The flattened text of one message's content (image parts contribute
+ *  their text only). */
+function messageText(content: NormalizedContent): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("\n");
+}
+
+/** Flatten OpenAI `messages` into a single prompt string (legacy text
+ *  path). Images are ignored here; a request carrying images takes the
+ *  envelope path (`buildJobInput`) instead. */
+function flattenMessages(messages: ChatMessage[]): string {
+  return messages.map((m) => `${m.role}: ${messageText(m.content)}`).join("\n");
+}
+
+/** True when any message carries an image (the request must travel as a
+ *  messages-v1 envelope). */
+export function requestHasImages(messages: ChatMessage[]): boolean {
+  return messages.some((m) => typeof m.content !== "string");
+}
+
+/** Fetch every remote (http/https) image into an inline base64 part, so
+ *  the whole input can be sealed as one self-contained envelope. Enforces
+ *  the same total image budget as inline data URIs. Returns the canonical
+ *  `EnvelopeMessage[]` or throws on a fetch/size failure. */
+async function resolveImages(messages: ChatMessage[]): Promise<EnvelopeMessage[]> {
+  let imageBytes = 0;
+  const out: EnvelopeMessage[] = [];
+  for (const m of messages) {
+    if (typeof m.content === "string") {
+      out.push({ role: m.role, content: m.content });
+      continue;
+    }
+    const resolved: EnvelopeContentPart[] = [];
+    for (const part of m.content) {
+      if (part.type === "text") {
+        resolved.push(part);
+        continue;
+      }
+      if (part.type === "image") {
+        imageBytes += Math.floor((part.data.length * 3) / 4);
+        resolved.push(part);
+        continue;
+      }
+      // Remote image: fetch + inline.
+      const res = await fetch(part.url);
+      if (!res.ok) throw new Error(`failed to fetch image ${part.url}: ${res.status}`);
+      const mime = res.headers.get("content-type")?.split(";")[0]?.trim() || "image/jpeg";
+      if (!mime.startsWith("image/")) {
+        throw new Error(`image url ${part.url} returned non-image content-type ${mime}`);
+      }
+      const buf = new Uint8Array(await res.arrayBuffer());
+      imageBytes += buf.byteLength;
+      if (imageBytes > MAX_IMAGE_BYTES) {
+        throw new Error(`images too large (max ${MAX_IMAGE_BYTES} bytes total)`);
+      }
+      resolved.push({ type: "image", mime, data: Buffer.from(buf).toString("base64") });
+    }
+    out.push({ role: m.role, content: resolved });
+  }
+  return out;
+}
+
+/** Build the sealed-payload bytes + the job's `inputFormat` for a parsed
+ *  request. Text-only requests use the legacy flattened-string bytes (so
+ *  `inputCommitment` is unchanged); requests with images resolve remote
+ *  images and serialize the canonical messages-v1 envelope. */
+export async function buildJobInput(
+  messages: ChatMessage[],
+): Promise<{ payloadBytes: Uint8Array; inputFormat?: typeof MESSAGES_V1 }> {
+  if (!requestHasImages(messages)) {
+    return { payloadBytes: new TextEncoder().encode(flattenMessages(messages)) };
+  }
+  const envelopeMessages = await resolveImages(messages);
+  if (!hasImageParts(envelopeMessages)) {
+    // All images turned out to be unresolved/empty — fall back to text.
+    return { payloadBytes: new TextEncoder().encode(flattenMessages(messages)) };
+  }
+  return { payloadBytes: buildEnvelopeBytes(envelopeMessages), inputFormat: MESSAGES_V1 };
 }
 
 export function jsonError(

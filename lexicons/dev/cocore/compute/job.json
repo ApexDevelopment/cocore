@@ -29,7 +29,12 @@
             "type": "string",
             "minLength": 64,
             "maxLength": 64,
-            "description": "SHA-256 hex of the encrypted prompt bytes the provider will decrypt. The plaintext prompt is never on-chain."
+            "description": "SHA-256 hex over the SEALED input plaintext bytes the provider decrypts — i.e. the exact bytes both the requester (before sealing) and the provider (after opening) hash, so it is self-consistent without either side parsing the payload. The plaintext is never on-chain. The byte layout is described by `inputFormat`: absent/`text` means the bytes are the raw prompt string; `messages-v1` means they are the UTF-8 of the canonical multimodal envelope (see `inputFormat`)."
+          },
+          "inputFormat": {
+            "type": "string",
+            "knownValues": ["text", "messages-v1"],
+            "description": "How to interpret the sealed input bytes that `inputCommitment` covers. Absent (legacy) or `text`: the bytes are the raw prompt string. `messages-v1`: the bytes are the UTF-8 of a canonical-JSON multimodal envelope { v: 1, messages: [ { role, content } ] }, where `content` is either a string or an array of parts — { type: \"text\", text } and { type: \"image\", mime, data } with `data` base64-encoded image bytes inline. A verifier reconstructs the same canonical bytes to recompute `inputCommitment`. Additive: providers that don't understand a format reject the job rather than mis-serving it."
           },
           "inputCipherURL": {
             "type": "string",
