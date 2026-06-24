@@ -20,6 +20,7 @@
 
 import type { OAuthSession } from "@atcute/oauth-node-client";
 import { submitJob } from "@cocore/sdk/publish";
+import { ownMachineCandidates } from "@cocore/sdk/provider-selection";
 import { Effect } from "effect";
 import nacl from "tweetnacl";
 
@@ -314,6 +315,7 @@ export class ProviderPayoutsNotEligibleError extends Error {
 async function pickProvider(
   advisorUrl: string,
   model: string,
+  requesterDid: string,
   targetDid: string | undefined,
   options: PickProviderOptions,
   allowedDids: Set<string> | undefined,
@@ -340,6 +342,9 @@ async function pickProvider(
     if (!targetPasses) throw new ProviderPayoutsNotEligibleError(targetDid);
     return hit;
   }
+
+  const own = ownMachineCandidates(attested, requesterDid, model, excludeDids ?? new Set());
+  if (own.length > 0) return own[0]!;
 
   // Drop providers a prior attempt already tried-and-failed so failover
   // doesn't keep re-picking the same flapped machine. The error counts
@@ -566,6 +571,7 @@ export async function* runDispatch(input: DispatchInputs): AsyncGenerator<Dispat
       candidate = await pickProvider(
         config.advisorUrl,
         input.model,
+        input.did,
         input.targetProviderDid,
         { payoutsEligibleDids: null, selfLoopExempt: null },
         input.targetProviderDid ? undefined : input.allowedProviderDids,
@@ -622,6 +628,8 @@ export async function* runDispatch(input: DispatchInputs): AsyncGenerator<Dispat
         ciphertext: [...candidateCiphertext],
         sessionId,
         targetProviderDid: candidate.did,
+        // Pin the exact machine we sealed the prompt to, the only one that can unseal.
+        ...(candidate.machineId ? { targetMachineId: candidate.machineId } : {}),
       }),
     });
 
