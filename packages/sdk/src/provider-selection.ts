@@ -27,10 +27,7 @@ export function ownMachineCandidates<
 >(attested: T[], requesterDid: string, model: string, excludeDids: Set<string>): T[] {
   return attested
     .filter(
-      (c) =>
-        c.did === requesterDid &&
-        !excludeDids.has(c.did) &&
-        c.supportedModels.includes(model),
+      (c) => c.did === requesterDid && !excludeDids.has(c.did) && c.supportedModels.includes(model),
     )
     .sort((a, b) => Date.parse(b.lastSeen) - Date.parse(a.lastSeen));
 }
