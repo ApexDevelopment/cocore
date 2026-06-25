@@ -1491,8 +1491,8 @@ export function AdvancedSettingsDialogContent({
             </SegmentedControl>
             <SmallBody variant="secondary">
               Pro-bono jobs are served free and unmetered, with no exchange cut. “Anyone” serves
-              every requester free; “Friends” serves only the friends you check below — everyone else
-              is still a normal paid job. “Off” bills every job. Changes save as you make them.
+              every requester free; “Friends” serves only the friends you check below — everyone
+              else is still a normal paid job. “Off” bills every job. Changes save as you make them.
             </SmallBody>
             {mode === "direct" ? (
               <ProBonoFriendPicker
