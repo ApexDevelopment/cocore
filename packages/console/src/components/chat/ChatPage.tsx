@@ -1325,6 +1325,9 @@ function AdvancedOptions({
             size="sm"
             variant={country === c.code ? "primary" : "outline"}
             onPress={() => onCountry(c.code)}
+            // Compact 2-letter code is shown; the full country name is the
+            // accessible label (screen readers + hover) so "US" isn't opaque.
+            aria-label={c.label}
           >
             {c.code ?? "Any"}
           </Button>
