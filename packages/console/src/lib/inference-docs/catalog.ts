@@ -178,6 +178,16 @@ export const INFERENCE_API_CATALOG: Array<InferenceApiCatalogEntry> = [
   },
 ];
 
+export const INFERENCE_API_TOPIC_SECTIONS = [
+  {
+    id: "inference-api-image-input",
+    navLabel: "image input",
+    title: "Image input",
+    description:
+      "Vision-capable models accept images alongside text using OpenAI's multimodal content parts. Carried inline as base64 or fetched from a URL; no separate upload step.",
+  },
+] as const;
+
 export const INFERENCE_API_ERROR_SECTIONS = [
   {
     id: "inference-api-dispatch-errors",
