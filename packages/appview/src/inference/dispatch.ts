@@ -56,6 +56,11 @@ export interface DispatchInputs {
   maxTokensOut: number;
   priceCeiling: { amount: number; currency: string };
   targetProviderDid?: string;
+  /** Specific machine under targetProviderDid to pin. When set, pickProvider
+   *  selects the advisor row matching both DID and machineId rather than the
+   *  first DID match, so two machines under the same owner DID are
+   *  distinguished. */
+  targetMachineId?: string;
 }
 
 /** The slice of a provider's indexed profile the credit line needs.
@@ -275,6 +280,7 @@ async function pickProvider(
   model: string,
   requesterDid: string,
   targetDid: string | undefined,
+  targetMachineId: string | undefined,
   options: PickProviderOptions,
   /** Providers already tried this dispatch (a prior attempt's `/jobs`
    *  failed because they'd flapped out). Excluded from re-selection so
@@ -287,7 +293,15 @@ async function pickProvider(
   if (attested.length === 0) throw new NoProvidersConnectedError();
 
   if (targetDid) {
-    const hit = attested.find((p) => p.did === targetDid);
+    // When targetMachineId is set, require an exact (DID, machineId) match so
+    // a Mac Mini and a Linux box under the same owner DID are distinguished.
+    // Fall back to DID-only if no machineId was specified (or for legacy rows
+    // that predate the field).
+    const hit =
+      targetMachineId
+        ? (attested.find((p) => p.did === targetDid && p.machineId === targetMachineId) ??
+          attested.find((p) => p.did === targetDid))
+        : attested.find((p) => p.did === targetDid);
     if (!hit) throw new TargetProviderNotConnectedError(targetDid);
     const targetPasses = filterByPayoutsEligibility([hit], options).length > 0;
     if (!targetPasses) throw new ProviderPayoutsNotEligibleError(targetDid);
@@ -459,6 +473,7 @@ export async function* runDispatch(
         input.model,
         input.did,
         input.targetProviderDid,
+        input.targetMachineId,
         { payoutsEligibleDids: null, selfLoopExempt: null },
         excludeDids,
       );
