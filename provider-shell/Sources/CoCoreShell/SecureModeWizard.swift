@@ -228,7 +228,10 @@ struct AttestationDiagnostic {
     /// signal that fed the classification.
     var report: String {
         let stub = pushStubbed.map { $0 ? "true" : "false" } ?? "—"
-        let http = chainHTTP.map { "\($0)" } ?? "200"
+        // nil chainHTTP means either a clean 200 last poll OR no poll ever ran
+        // (push-failed path) — distinguish them via polls so the log never
+        // shows a fabricated "200" for a leg that never executed.
+        let http = chainHTTP.map { "\($0)" } ?? (polls == 0 ? "n/a" : "200")
         return [
             "co/core Secure Mode attestation failed [\(code)]",
             "serial=\(serial) enrolled=\(enrolled) elapsed=\(elapsedSeconds)s polls=\(polls)",
