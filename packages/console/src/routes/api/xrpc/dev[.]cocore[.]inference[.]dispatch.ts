@@ -97,7 +97,9 @@ function parseDispatch(body: DispatchBody): ParsedDispatch | string {
     return "targetMachineId must be a string when provided";
   }
   let country: string | undefined;
-  if (body.country !== undefined) {
+  // `null` (an explicit "no country") is treated the same as absent, so a
+  // client that sends `country: null` isn't rejected with a misleading 400.
+  if (body.country !== undefined && body.country !== null) {
     if (typeof body.country !== "string" || !/^[A-Za-z]{2}$/.test(body.country.trim())) {
       return "country must be a 2-letter ISO 3166-1 alpha-2 code";
     }

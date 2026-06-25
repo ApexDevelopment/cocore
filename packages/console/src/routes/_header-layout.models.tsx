@@ -1117,6 +1117,9 @@ function ModelsPage() {
                   <tbody>
                     {selected.machines.map((mach, i) => {
                       const isLast = i === selected.machines.length - 1;
+                      // Derive the flag emoji once (it's null for a non-2-letter
+                      // self-claim); reused in the region chip below.
+                      const regionFlagEmoji = mach.region ? regionFlag(mach.region) : null;
                       return (
                         <tr
                           key={`${selected.modelId}-${mach.attestationPubKey ?? mach.did}`}
@@ -1143,8 +1146,8 @@ function ModelsPage() {
                                   {...stylex.props(styles.regionChip)}
                                   title={`Provider-claimed region · ${mach.region.toUpperCase()}`}
                                 >
-                                  {regionFlag(mach.region) ? (
-                                    <span aria-hidden="true">{regionFlag(mach.region)}</span>
+                                  {regionFlagEmoji ? (
+                                    <span aria-hidden="true">{regionFlagEmoji}</span>
                                   ) : null}
                                   {mach.region.toUpperCase()}
                                 </span>
