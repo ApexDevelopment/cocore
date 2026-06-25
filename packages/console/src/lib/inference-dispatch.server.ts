@@ -448,7 +448,10 @@ async function pickProvider(
     }
     const eligible = filterByPayoutsEligibility(friendInCountry, options);
     if (eligible.length === 0) {
-      throw new ProviderPayoutsNotEligibleError(friendFits[0]!.did);
+      // Surface a DID from the post-country-filter list so the diagnostic
+      // points at a provider that's actually both model-fit and in-country,
+      // not one the country filter already excluded.
+      throw new ProviderPayoutsNotEligibleError(friendInCountry[0]!.did);
     }
     eligible.sort((a, b) => Date.parse(b.lastSeen) - Date.parse(a.lastSeen));
     return eligible[0]!;
@@ -463,12 +466,12 @@ async function pickProvider(
   const eligible = filterByPayoutsEligibility(inCountry, options);
   if (eligible.length === 0) {
     // No payouts-eligible provider serves this model. Surface the
-    // first model-fit provider's DID so the caller can hint at
-    // who's blocking; that DID's record will explain why (no
+    // first model-fit, in-country provider's DID so the caller can
+    // hint at who's blocking; that DID's record will explain why (no
     // Stripe Connect under fiat semantics, etc.). Today this is
     // unreachable under closed-loop (payoutsEligibleDids is
     // always null) but the branch stays for the phase-two path.
-    throw new ProviderPayoutsNotEligibleError(fits[0]!.did);
+    throw new ProviderPayoutsNotEligibleError(inCountry[0]!.did);
   }
   eligible.sort((a, b) => Date.parse(b.lastSeen) - Date.parse(a.lastSeen));
   return eligible[0]!;

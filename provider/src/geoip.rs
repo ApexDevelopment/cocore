@@ -24,6 +24,11 @@ pub const REGION_SOURCE_IP_GEO: &str = "ip-geo";
 /// ISO 3166-1 alpha-2 code in the response body. Overridable.
 const DEFAULT_ENDPOINT: &str = "https://ifconfig.co/country-iso";
 
+/// Cap on the response body we buffer. A country code is 2 bytes and a small
+/// JSON envelope is well under this; anything larger is a misbehaving (or
+/// compromised) endpoint, so we discard it rather than buffer it unbounded.
+const MAX_BODY_BYTES: usize = 4096;
+
 fn endpoint() -> String {
     std::env::var("COCORE_GEOIP_URL")
         .ok()
@@ -37,7 +42,19 @@ fn endpoint() -> String {
 /// caller can omit `region` rather than block or publish a bad value.
 pub async fn resolve_country(http: &reqwest::Client) -> Option<String> {
     let url = endpoint();
-    let resp = http
+    if url == DEFAULT_ENDPOINT {
+        // The default public endpoint rate-limits unauthenticated clients to
+        // ~1 req/min per IP, so providers behind shared/CGNAT egress can be
+        // silently throttled and resolve to `None` every serve. Nudge the
+        // operator toward a self-hosted geo service for reliable results.
+        tracing::warn!(
+            endpoint = DEFAULT_ENDPOINT,
+            "using the default public geoip endpoint (rate-limited to ~1 req/min \
+             per IP); set COCORE_GEOIP_URL to a self-hosted service for reliable \
+             region resolution on shared or CGNAT egress IPs"
+        );
+    }
+    let mut resp = http
         .get(&url)
         .timeout(Duration::from_secs(5))
         .send()
@@ -46,7 +63,20 @@ pub async fn resolve_country(http: &reqwest::Client) -> Option<String> {
     if !resp.status().is_success() {
         return None;
     }
-    let body = resp.text().await.ok()?;
+    // Stream with a hard cap instead of `resp.text()` so a custom (or
+    // compromised) endpoint can't make us buffer an arbitrarily large body.
+    let mut buf = Vec::new();
+    while let Some(chunk) = resp.chunk().await.ok()? {
+        buf.extend_from_slice(&chunk);
+        if buf.len() > MAX_BODY_BYTES {
+            tracing::warn!(
+                limit = MAX_BODY_BYTES,
+                "geoip response body exceeded the size cap — discarding"
+            );
+            return None;
+        }
+    }
+    let body = String::from_utf8(buf).ok()?;
     parse_country(&body)
 }
 

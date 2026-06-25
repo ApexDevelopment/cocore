@@ -339,7 +339,9 @@ async function pickProvider(
   if (inCountry.length === 0) throw new NoProvidersForCountryError(model, country!, fits.length);
   const eligible = filterByPayoutsEligibility(inCountry, options);
   if (eligible.length === 0) {
-    throw new ProviderPayoutsNotEligibleError(fits[0]!.did);
+    // Use the post-country-filter list so the surfaced DID is a provider
+    // that's both model-fit and in-country, not one country filtering dropped.
+    throw new ProviderPayoutsNotEligibleError(inCountry[0]!.did);
   }
   eligible.sort((a, b) => Date.parse(b.lastSeen) - Date.parse(a.lastSeen));
   return eligible[0]!;
