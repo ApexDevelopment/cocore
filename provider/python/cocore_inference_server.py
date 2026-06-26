@@ -295,13 +295,51 @@ def main() -> None:
     # that the FastAPI routes read at request time. Setting them here
     # (after load_model, before uvicorn.run) configures the server so
     # /v1/chat/completions can parse and emit structured tool_calls.
+    #
+    # We verify the globals exist on the module before setting them.
+    # If they don't, the installed vllm-mlx version doesn't support
+    # tool calling — we warn and continue (the provider's
+    # supportsToolCalls flag will still be advertised, but the model
+    # won't actually emit tool_calls). This is better than silently
+    # setting attributes that nothing reads.
     if args.enable_auto_tool_choice:
-        srv._enable_auto_tool_choice = True
-        srv._tool_call_parser = args.tool_call_parser or "auto"
-        print(
-            f"[cocore-engine] tool calling enabled (parser: {srv._tool_call_parser})",
-            flush=True,
-        )
+        _has_tool_support = hasattr(srv, "_enable_auto_tool_choice")
+        if not _has_tool_support:
+            print(
+                "[cocore-engine] WARNING: --enable-auto-tool-choice was passed "
+                "but this vllm-mlx version does not expose _enable_auto_tool_choice. "
+                "Tool calling will NOT work. Upgrade vllm-mlx to a version that "
+                "supports tool calling (look for _enable_auto_tool_choice and "
+                "_tool_call_parser globals in vllm_mlx.server).",
+                flush=True,
+            )
+            # Still set the attributes so a future vllm-mlx upgrade picks
+            # them up without needing a restart — but they're inert on
+            # versions that don't read them.
+            srv._enable_auto_tool_choice = True
+            srv._tool_call_parser = args.tool_call_parser or "auto"
+        else:
+            srv._enable_auto_tool_choice = True
+            srv._tool_call_parser = args.tool_call_parser or "auto"
+            # Verify the parser is known. vllm-mlx supports a fixed set;
+            # an unknown parser will cause request-time errors.
+            _known_parsers = {
+                "auto", "hermes", "mistral", "qwen", "llama",
+                "deepseek", "kimi", "granite", "nemotron", "xlam",
+                "functionary", "glm47",
+            }
+            _parser = srv._tool_call_parser
+            if _parser not in _known_parsers:
+                print(
+                    f"[cocore-engine] WARNING: tool call parser {_parser!r} is not "
+                    f"in the known set {sorted(_known_parsers)}. It may not work "
+                    f"with this vllm-mlx version.",
+                    flush=True,
+                )
+            print(
+                f"[cocore-engine] tool calling enabled (parser: {srv._tool_call_parser})",
+                flush=True,
+            )
 
     print(f"[cocore-engine] model loaded; binding {socket_path}", flush=True)
 
