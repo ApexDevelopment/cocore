@@ -2976,7 +2976,13 @@ mod vision_fault_tests {
             "ValueError: could not map weights: language_model.layers.0.self_attn.q_proj"
         )));
         assert!(is_multimodal_weight_map_failure(Some(
-            "Missing key in checkpoint"
+            "Missing key in checkpoint: language_model.embed_tokens.weight"
+        )));
+        // A text model with a corrupted/version-mismatched checkpoint produces
+        // a bare `Missing key … model.…` (no `language_model.`): this must NOT
+        // be classified as multimodal, or the user gets the wrong remediation.
+        assert!(!is_multimodal_weight_map_failure(Some(
+            "Missing key in checkpoint: model.layers.0.self_attn.q_proj.weight"
         )));
         assert!(!is_multimodal_weight_map_failure(Some(
             "OSError: out of memory loading weights"
