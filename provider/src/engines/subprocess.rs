@@ -281,21 +281,23 @@ fn xet_activity_mtime() -> u64 {
     // HF_HOME > XDG_CACHE_HOME/huggingface > ~/.cache/huggingface.
     // (`std::env::var` returns a Result, so `.ok().filter(..)` to drop both
     // the unset and the set-but-empty cases before falling through.)
-    let hf_cache_root = if let Some(hf_home) =
-        std::env::var("HF_HOME").ok().filter(|v| !v.is_empty())
-    {
-        PathBuf::from(hf_home)
-    } else if let Some(xdg) = std::env::var("XDG_CACHE_HOME").ok().filter(|v| !v.is_empty()) {
-        Path::new(&xdg).join("huggingface")
-    } else {
-        let Ok(home) = std::env::var("HOME") else {
-            return 0;
+    let hf_cache_root =
+        if let Some(hf_home) = std::env::var("HF_HOME").ok().filter(|v| !v.is_empty()) {
+            PathBuf::from(hf_home)
+        } else if let Some(xdg) = std::env::var("XDG_CACHE_HOME")
+            .ok()
+            .filter(|v| !v.is_empty())
+        {
+            Path::new(&xdg).join("huggingface")
+        } else {
+            let Ok(home) = std::env::var("HOME") else {
+                return 0;
+            };
+            if home.is_empty() {
+                return 0;
+            }
+            Path::new(&home).join(".cache").join("huggingface")
         };
-        if home.is_empty() {
-            return 0;
-        }
-        Path::new(&home).join(".cache").join("huggingface")
-    };
     let dir = hf_cache_root.join("xet");
     newest_mtime_secs(&dir)
 }
@@ -1334,10 +1336,7 @@ mod tests {
             env.get("HF_HUB_TOKEN"),
             Some(&Some("hf_secret123".to_string()))
         );
-        assert_eq!(
-            env.get("HF_HUB_DISABLE_XET"),
-            Some(&Some("1".to_string()))
-        );
+        assert_eq!(env.get("HF_HUB_DISABLE_XET"), Some(&Some("1".to_string())));
 
         std::env::remove_var("COCORE_HF_TOKEN");
     }
