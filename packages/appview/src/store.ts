@@ -267,6 +267,7 @@ export class Store {
   private getStmt;
   private getByCollectionStmt;
   private existingVersionStmt;
+  private guardedUpsertTxn;
 
   constructor(path: string) {
     this.db = new Database(path);
@@ -292,6 +293,26 @@ export class Store {
     );
     this.existingVersionStmt = this.db.prepare(
       `SELECT json_extract(body, '$.createdAt') AS createdAt FROM records WHERE uri = ?`,
+    );
+    // Version-guarded write as ONE atomic step. We compare timestamps in JS
+    // (see isStaleVersion) rather than in the SQL `ON CONFLICT … WHERE` clause
+    // because the provider agent serializes `createdAt` at sub-millisecond
+    // (µs/ns) RFC3339 precision, which SQLite's date functions can't compare
+    // reliably (julianday/strftime cap at ms and return NULL on extra digits).
+    // Keeping the compare in JS means the read + conditional write straddle two
+    // statements, so wrap them in an IMMEDIATE transaction: it takes the write
+    // lock up front, so a second writer (a future multi-process AppView sharing
+    // this WAL database) can't land between the check and the write and defeat
+    // the guard.
+    this.guardedUpsertTxn = this.db.transaction(
+      (incoming: string, params: Record<string, unknown>) => {
+        const row = this.existingVersionStmt.get(params["uri"]) as
+          | { createdAt: string | null }
+          | undefined;
+        const existing = row?.createdAt ?? null;
+        if (existing !== null && isStaleVersion(incoming, existing)) return;
+        this.upsertStmt.run(params);
+      },
     );
   }
 
@@ -338,20 +359,22 @@ export class Store {
     // is strictly older than what we hold; equal/newer still applies, so
     // idempotent replay and legitimate updates are unaffected. Records with
     // no comparable `createdAt` keep the prior last-writer-wins behavior.
-    const incoming = bodyCreatedAt(rec.body);
-    if (incoming !== null) {
-      const row = this.existingVersionStmt.get(rec.uri) as { createdAt: string | null } | undefined;
-      const existing = row?.createdAt ?? null;
-      if (existing !== null && isStaleVersion(incoming, existing)) return;
-    }
-    this.upsertStmt.run({
+    const params = {
       uri: rec.uri,
       cid: rec.cid,
       collection: rec.collection,
       repo: rec.repo,
       rkey: rec.rkey,
       body: JSON.stringify(rec.body),
-    });
+    };
+    const incoming = bodyCreatedAt(rec.body);
+    if (incoming === null) {
+      // No version to compare — plain last-writer-wins, no read needed.
+      this.upsertStmt.run(params);
+      return;
+    }
+    // Versioned record — guard the write atomically (see guardedUpsertTxn).
+    this.guardedUpsertTxn.immediate(incoming, params);
   }
 
   get(uri: string): IndexedRecord | null {
