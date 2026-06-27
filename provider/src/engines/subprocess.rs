@@ -36,7 +36,7 @@
 //!
 //! ## Lifecycle
 //!
-//! 1. `SubprocessEngine::new(model, venv_python, supports_tool_calls)` — constructs but
+//! 1. `SubprocessEngine::new(model, venv_python, tool_config)` — constructs but
 //!    does not spawn. Generates a unique socket path under
 //!    `$HOME/.cocore/sockets/`.
 //! 2. `start()` — spawns the child (`<venv>/bin/python
@@ -227,29 +227,100 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(300);
 /// this we treat it as a disconnect.
 const HTTP_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// vLLM/vllm-mlx tool-calling launch configuration.
+///
+/// Cocore intentionally does NOT maintain a model-family parser matrix here.
+/// vLLM owns model-specific tool-call formatting/parsing; cocore only passes
+/// through operator-selected vLLM knobs and then verifies the resulting engine
+/// behavior with a startup canary before advertising tool-call support.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VllmToolConfig {
+    /// Operator opted into vLLM automatic tool choice.
+    pub enabled: bool,
+    /// vLLM tool parser name, e.g. `hermes`, `mistral`, `qwen`, `llama`.
+    pub tool_call_parser: Option<String>,
+    /// vllm-mlx default chat-template kwargs as a JSON object string, passed
+    /// through to the wrapper's `--default-chat-template-kwargs` flag.
+    pub default_chat_template_kwargs: Option<String>,
+    /// Last-resort passthrough for vllm-mlx wrapper flags cocore does not yet
+    /// model. Split on ASCII whitespace deliberately — no shell evaluation.
+    pub extra_args: Vec<String>,
+}
+
+impl VllmToolConfig {
+    pub fn from_env() -> Self {
+        let enabled = std::env::var("COCORE_ENABLE_TOOL_CALLS")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        Self {
+            enabled,
+            tool_call_parser: nonempty_env("COCORE_VLLM_TOOL_CALL_PARSER"),
+            default_chat_template_kwargs: nonempty_env("COCORE_VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS"),
+            extra_args: std::env::var("COCORE_VLLM_EXTRA_ARGS")
+                .ok()
+                .map(|s| {
+                    s.split_whitespace()
+                        .filter(|p| !p.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    fn parser_label(&self) -> &str {
+        self.tool_call_parser.as_deref().unwrap_or("auto")
+    }
+
+    fn wrapper_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+        if self.enabled {
+            args.push("--enable-auto-tool-choice".to_string());
+            if let Some(parser) = &self.tool_call_parser {
+                args.push("--tool-call-parser".to_string());
+                args.push(parser.clone());
+            }
+            if let Some(kwargs) = &self.default_chat_template_kwargs {
+                args.push("--default-chat-template-kwargs".to_string());
+                args.push(kwargs.clone());
+            }
+        }
+        args.extend(self.extra_args.iter().cloned());
+        args
+    }
+}
+
+fn nonempty_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 pub struct SubprocessEngine {
     model_id: String,
     venv_python: PathBuf,
     socket_path: PathBuf,
     child: Mutex<Option<Child>>,
-    /// Whether this engine was started with `--enable-auto-tool-choice`
-    /// so the model can parse and emit structured tool calls. Set from
-    /// the `COCORE_ENABLE_TOOL_CALLS` env var at construction time;
-    /// passed to the Python wrapper as a CLI flag in `start()`.
-    supports_tool_calls: bool,
+    /// vLLM/vllm-mlx tool-calling launch config. When enabled, the wrapper is
+    /// started with `--enable-auto-tool-choice` plus any configured parser /
+    /// chat-template kwargs. Tool-call support is advertised only after the
+    /// startup canary flips `verified_tool_calls` to true.
+    tool_config: VllmToolConfig,
+    verified_tool_calls: Mutex<bool>,
 }
 
 impl SubprocessEngine {
     /// Construct an engine bound to `model_id`. Does not spawn the
     /// child — call `start()` to do that. `venv_python` is the
     /// interpreter the install script bootstrapped (typically
-    /// `$HOME/.cocore/python/bin/python`). `supports_tool_calls`
-    /// passes `--enable-auto-tool-choice` to the Python wrapper so
-    /// the model can parse and emit structured tool calls.
+    /// `$HOME/.cocore/python/bin/python`). `tool_config` controls the
+    /// generic vLLM tool-calling passthrough flags; support is verified
+    /// after the child is ready before being advertised.
     pub fn new(
         model_id: impl Into<String>,
         venv_python: PathBuf,
-        supports_tool_calls: bool,
+        tool_config: VllmToolConfig,
     ) -> Result<Self> {
         let model_id = model_id.into();
         let sockets_dir = state_dir()?.join("sockets");
@@ -293,7 +364,8 @@ impl SubprocessEngine {
             venv_python,
             socket_path,
             child: Mutex::new(None),
-            supports_tool_calls,
+            tool_config,
+            verified_tool_calls: Mutex::new(false),
         })
     }
 
@@ -449,13 +521,18 @@ impl SubprocessEngine {
             .arg("--parent-pid")
             .arg(std::process::id().to_string());
 
-        // Tool calling: when the operator enabled it (COCORE_ENABLE_TOOL_CALLS),
-        // pass --enable-auto-tool-choice to the Python wrapper so vllm-mlx
-        // configures its tool call parser. The wrapper defaults the parser
-        // to "auto" (tries all formats) when --tool-call-parser isn't given.
-        if self.supports_tool_calls {
-            cmd.arg("--enable-auto-tool-choice");
+        // Tool calling: when the operator enabled it, pass vLLM/vllm-mlx's
+        // own tool-calling flags through. Cocore does not infer parsers from
+        // model names here; parser/template selection belongs to vLLM config,
+        // and a startup canary below decides whether this engine may advertise
+        // tool-call support.
+        if !self.tool_config.extra_args.is_empty() {
+            tracing::info!(
+                count = self.tool_config.extra_args.len(),
+                "passing COCORE_VLLM_EXTRA_ARGS through to inference wrapper"
+            );
         }
+        cmd.args(self.tool_config.wrapper_args());
         // Capture stdout + stderr into a bounded ring buffer
         // (see ENGINE_RING_BUFFER_CAP). We deliberately do NOT
         // pipe child output into tracing: vllm-mlx logs prompt
@@ -582,8 +659,106 @@ impl SubprocessEngine {
         }
 
         tracing::info!(model = %self.model_id, "inference subprocess ready");
+        let verified_tool_calls = if self.tool_config.enabled {
+            match self.verify_tool_call_support() {
+                Ok(true) => {
+                    tracing::info!(
+                        model = %self.model_id,
+                        parser = self.tool_config.parser_label(),
+                        "tool-calling canary passed; advertising verified tool support"
+                    );
+                    true
+                }
+                Ok(false) => {
+                    tracing::warn!(
+                        model = %self.model_id,
+                        parser = self.tool_config.parser_label(),
+                        "tool-calling canary returned no structured tool_calls; not advertising tool support"
+                    );
+                    false
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        model = %self.model_id,
+                        parser = self.tool_config.parser_label(),
+                        error = %e,
+                        "tool-calling canary failed; not advertising tool support"
+                    );
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        if let Ok(mut verified) = self.verified_tool_calls.lock() {
+            *verified = verified_tool_calls;
+        }
         *guard = Some(child);
         Ok(())
+    }
+
+    pub fn verified_tool_calls(&self) -> bool {
+        self.verified_tool_calls.lock().map(|v| *v).unwrap_or(false)
+    }
+
+    /// Probe the local vLLM/vllm-mlx server with a forced function-call request
+    /// and require an actual OpenAI-compatible `message.tool_calls` response.
+    /// This keeps cocore out of the model/parser business: vLLM performs all
+    /// formatting/parsing, and cocore only advertises what the backend proves.
+    fn verify_tool_call_support(&self) -> Result<bool> {
+        let body = serde_json::json!({
+            "model": self.model_id.as_str(),
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a tool-calling canary. When a tool is forced, return exactly that tool call and no prose."
+                },
+                {
+                    "role": "user",
+                    "content": "Call report_status with status set to ok."
+                }
+            ],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "report_status",
+                        "description": "Report the tool-calling canary status.",
+                        "strict": true,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "status": { "type": "string" }
+                            },
+                            "required": ["status"],
+                            "additionalProperties": false
+                        }
+                    }
+                }
+            ],
+            "tool_choice": { "type": "function", "function": { "name": "report_status" } },
+            "max_tokens": 96,
+            "temperature": 0,
+        });
+        let body_bytes = Zeroizing::new(serde_json::to_vec(&body)?);
+        let resp_bytes = self.http_post_uds("/v1/chat/completions", &body_bytes)?;
+        let resp: serde_json::Value = serde_json::from_slice(&resp_bytes).with_context(|| {
+            format!(
+                "parsing tool-calling canary JSON response ({} body bytes elided to avoid content logging)",
+                resp_bytes.len()
+            )
+        })?;
+        let Some(tool_calls) = resp
+            .pointer("/choices/0/message/tool_calls")
+            .and_then(|v| v.as_array())
+        else {
+            return Ok(false);
+        };
+        Ok(tool_calls.iter().any(|tc| {
+            tc.pointer("/function/name")
+                .and_then(|v| v.as_str())
+                .is_some_and(|name| name == "report_status")
+        }))
     }
 
     /// Probe `GET /v1/models` to confirm the FastAPI app under
@@ -741,16 +916,17 @@ impl SubprocessEngine {
                 });
                 // Include tool_calls on assistant messages that have them.
                 if let Some(tool_calls) = &m.tool_calls {
-                    msg["tool_calls"] = serde_json::json!(
-                        tool_calls.iter().map(|tc| serde_json::json!({
+                    msg["tool_calls"] = serde_json::json!(tool_calls
+                        .iter()
+                        .map(|tc| serde_json::json!({
                             "id": tc.id,
                             "type": "function",
                             "function": {
                                 "name": tc.function_name,
                                 "arguments": tc.function_arguments,
                             }
-                        })).collect::<Vec<_>>()
-                    );
+                        }))
+                        .collect::<Vec<_>>());
                 }
                 // Include tool_call_id on tool-role messages.
                 if let Some(id) = &m.tool_call_id {
@@ -862,8 +1038,7 @@ impl SubprocessEngine {
             // the fragments into complete tool calls.
             if let Some(tool_calls) = v.pointer("/choices/0/delta/tool_calls") {
                 if !tool_calls.is_null() {
-                    let json = serde_json::to_string(tool_calls)
-                        .unwrap_or_default();
+                    let json = serde_json::to_string(tool_calls).unwrap_or_default();
                     if !json.is_empty() {
                         on_data(DeltaChannel::ToolCall, &json)?;
                     }
@@ -1160,6 +1335,51 @@ mod tests {
             })
             .unwrap();
         (out, tokens)
+    }
+
+    #[test]
+    fn vllm_tool_config_builds_wrapper_args_only_when_enabled() {
+        let disabled = VllmToolConfig {
+            enabled: false,
+            tool_call_parser: Some("hermes".into()),
+            default_chat_template_kwargs: Some(r#"{"enable_thinking":false}"#.into()),
+            extra_args: vec!["--some-future-flag".into()],
+        };
+        assert_eq!(disabled.wrapper_args(), vec!["--some-future-flag"]);
+
+        let enabled = VllmToolConfig {
+            enabled: true,
+            tool_call_parser: Some("hermes".into()),
+            default_chat_template_kwargs: Some(r#"{"enable_thinking":false}"#.into()),
+            extra_args: vec!["--future".into(), "value".into()],
+        };
+        assert_eq!(
+            enabled.wrapper_args(),
+            vec![
+                "--enable-auto-tool-choice",
+                "--tool-call-parser",
+                "hermes",
+                "--default-chat-template-kwargs",
+                r#"{"enable_thinking":false}"#,
+                "--future",
+                "value",
+            ]
+        );
+    }
+
+    #[test]
+    fn vllm_tool_config_defaults_parser_label_to_auto() {
+        let cfg = VllmToolConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        assert_eq!(cfg.parser_label(), "auto");
+        let cfg = VllmToolConfig {
+            enabled: true,
+            tool_call_parser: Some("hermes".into()),
+            ..Default::default()
+        };
+        assert_eq!(cfg.parser_label(), "hermes");
     }
 
     #[test]
@@ -1461,10 +1681,7 @@ mod tests {
         let body = SubprocessEngine::build_chat_body(&req, false).unwrap();
         let tool_msg = &body["messages"][2];
         assert_eq!(tool_msg["role"], "tool");
-        assert_eq!(
-            tool_msg["tool_call_id"],
-            serde_json::json!("call_abc123")
-        );
+        assert_eq!(tool_msg["tool_call_id"], serde_json::json!("call_abc123"));
     }
 
     #[test]
@@ -1516,10 +1733,7 @@ mod tests {
         // Second delta: arguments fragment
         let second: serde_json::Value =
             serde_json::from_str(tool_call_deltas[1]).expect("second delta is JSON");
-        assert_eq!(
-            second[0]["function"]["arguments"],
-            "{\"city\":\"Tokyo\"}"
-        );
+        assert_eq!(second[0]["function"]["arguments"], "{\"city\":\"Tokyo\"}");
     }
 
     #[test]

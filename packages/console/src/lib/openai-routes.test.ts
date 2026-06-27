@@ -9,7 +9,7 @@
 // the dispatch generator) but keep the REAL `authenticate` /
 // `runTraced` path, since the effect/o11y conversion is what touched it.
 
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { DispatchEvent } from "./inference-dispatch.server.ts";
 
@@ -59,6 +59,25 @@ const baseBody = {
   stream: true,
 };
 
+const weatherTools = [
+  {
+    type: "function",
+    function: {
+      name: "get_weather",
+      description: "Get weather",
+      parameters: {
+        type: "object",
+        properties: { city: { type: "string" } },
+        required: ["city"],
+      },
+    },
+  },
+];
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe("handleChatCompletions wire contract", () => {
   test("stream:true happy path returns text/event-stream, not JSON", async () => {
     state.events = [
@@ -91,5 +110,61 @@ describe("handleChatCompletions wire contract", () => {
     const res = await handleChatCompletions(req);
     expect(res.status).toBe(401);
     expect(res.headers.get("content-type") ?? "").toMatch(/application\/json/);
+  });
+
+  test("tool requests require the requested model in toolCallModels when reported", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify([
+            {
+              did: "did:plc:provider",
+              supportedModels: ["model-a"],
+              attestedAt: new Date().toISOString(),
+              active: true,
+              supportsToolCalls: true,
+              toolCallModels: ["model-b"],
+            },
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+    const res = await handleChatCompletions(
+      streamRequest({ ...baseBody, model: "model-a", stream: false, tools: weatherTools }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.type).toBe("tool_calls_not_supported");
+  });
+
+  test("tool requests pass gating when toolCallModels contains the requested model", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify([
+            {
+              did: "did:plc:provider",
+              supportedModels: ["model-a"],
+              attestedAt: new Date().toISOString(),
+              active: true,
+              supportsToolCalls: true,
+              toolCallModels: ["model-a"],
+            },
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+    state.events = [
+      { kind: "chunk", seq: 0, channel: "content", text: "ok" },
+      { kind: "complete", tokensIn: 1, tokensOut: 1, receiptUri: "at://x" },
+    ];
+    const res = await handleChatCompletions(
+      streamRequest({ ...baseBody, model: "model-a", stream: false, tools: weatherTools }),
+    );
+    expect(res.status).toBe(200);
   });
 });

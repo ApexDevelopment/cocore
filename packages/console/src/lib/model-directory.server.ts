@@ -304,6 +304,9 @@ interface AdvisorProviderRow {
    *  --enable-auto-tool-choice. Used to compute the per-model `tools`
    *  capability hint. */
   supportsToolCalls?: boolean;
+  /** Per-model verified tool-call support. Undefined means legacy coarse
+   *  `supportsToolCalls`; present means only listed models are verified. */
+  toolCallModels?: string[];
 }
 
 /** Per-machine online info from the advisor. */
@@ -316,6 +319,7 @@ interface AdvisorOnline {
    *  --enable-auto-tool-choice. Used to compute the per-model `tools`
    *  capability hint. */
   supportsToolCalls: boolean;
+  toolCallModels?: string[];
 }
 
 interface AdvisorOnlineResult {
@@ -352,7 +356,12 @@ async function fetchAdvisorOnlineDids(): Promise<AdvisorOnlineResult | null> {
         // same owner DID get separate entries. Fall back to the DID alone for
         // legacy agents that predate the machineId field.
         const key = p.machineId ? `${p.did}:${p.machineId}` : p.did;
-        return [key, { lastSeen: p.lastSeen ?? p.attestedAt!, verifiedTier, supportsToolCalls: p.supportsToolCalls === true }];
+        return [key, {
+          lastSeen: p.lastSeen ?? p.attestedAt!,
+          verifiedTier,
+          supportsToolCalls: p.supportsToolCalls === true,
+          toolCallModels: p.toolCallModels,
+        }];
       }),
     );
     return {
@@ -512,8 +521,14 @@ export async function buildModelDirectory(): Promise<ModelDirectoryResponse> {
       }
       const onlineInfo = advisorOnline.get(advisorKey);
       const seen = onlineInfo?.lastSeen ?? lastSeen;
-      // OR in tool calling support from this machine.
-      if (onlineInfo?.supportsToolCalls) {
+      // OR in tool calling support from this machine. New agents report the
+      // exact verified model subset; legacy agents only reported a coarse bool.
+      if (
+        onlineInfo &&
+        (Array.isArray(onlineInfo.toolCallModels)
+          ? onlineInfo.toolCallModels.includes(modelId)
+          : onlineInfo.supportsToolCalls)
+      ) {
         entry.tools = true;
       }
       const attestationPubKey = safeString(body.attestationPubKey);

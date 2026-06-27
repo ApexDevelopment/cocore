@@ -333,6 +333,10 @@ export interface AdvisorProviderRow {
    *  advisor or provider doesn't report it (treated as false). Used by
    *  the console to gate tool requests. */
   supportsToolCalls?: boolean;
+  /** Model ids whose engines passed the provider startup forced-tool canary.
+   *  When absent, callers fall back to legacy `supportsToolCalls`; when
+   *  present, only these models should be considered tool-capable. */
+  toolCallModels?: string[];
 }
 
 export interface PickProviderOptions {

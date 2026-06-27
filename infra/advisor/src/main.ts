@@ -297,11 +297,11 @@ async function main(): Promise<void> {
               challengeVerifiedSip: p.challengeVerifiedSip,
               codeAttested: p.codeAttested,
             },
-            // Tool calling: true when this machine's vllm-mlx was started
-            // with --enable-auto-tool-choice. The console gates tool requests
-            // on this — returning a 400 when tools are sent but no provider
-            // supports them.
+            // Tool calling: verified by the provider's startup canary. The
+            // per-model subset lets clients avoid treating one verified model
+            // as capability for every model on the machine.
             supportsToolCalls: p.supportsToolCalls,
+            toolCallModels: p.toolCallModels,
           })),
         ),
       ).pipe(Effect.withSpan("advisor.providers")),

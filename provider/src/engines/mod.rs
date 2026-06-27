@@ -277,31 +277,52 @@ pub fn parse_messages_v1(bytes: &[u8]) -> Result<Vec<Message>> {
         let parts = parse_content_parts(content, i)?;
         // Parse optional tool_calls (assistant messages) and tool_call_id
         // (tool-role messages) from the envelope.
-        let tool_calls = mo.get("tool_calls").map(|tc| {
-            let arr = tc.as_array()
-                .ok_or_else(|| anyhow!("message {i} tool_calls must be an array"))?;
-            arr.iter().enumerate().map(|(j, t)| {
-                let to = t.as_object()
-                    .ok_or_else(|| anyhow!("message {i} tool_call {j} is not an object"))?;
-                let id = to.get("id").and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow!("message {i} tool_call {j} missing id"))?
-                    .to_string();
-                let function = to.get("function").and_then(|v| v.as_object())
-                    .ok_or_else(|| anyhow!("message {i} tool_call {j} missing function"))?;
-                let function_name = function.get("name").and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow!("message {i} tool_call {j} missing function.name"))?
-                    .to_string();
-                let function_arguments = function.get("arguments").and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow!("message {i} tool_call {j} missing function.arguments"))?
-                    .to_string();
-                Ok::<ToolCallData, anyhow::Error>(ToolCallData {
-                    id,
-                    function_name,
-                    function_arguments,
-                })
-            }).collect::<Result<Vec<_>, _>>()
-        }).transpose()?;
-        let tool_call_id = mo.get("tool_call_id")
+        let tool_calls = mo
+            .get("tool_calls")
+            .map(|tc| {
+                let arr = tc
+                    .as_array()
+                    .ok_or_else(|| anyhow!("message {i} tool_calls must be an array"))?;
+                arr.iter()
+                    .enumerate()
+                    .map(|(j, t)| {
+                        let to = t
+                            .as_object()
+                            .ok_or_else(|| anyhow!("message {i} tool_call {j} is not an object"))?;
+                        let id = to
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| anyhow!("message {i} tool_call {j} missing id"))?
+                            .to_string();
+                        let function = to
+                            .get("function")
+                            .and_then(|v| v.as_object())
+                            .ok_or_else(|| anyhow!("message {i} tool_call {j} missing function"))?;
+                        let function_name = function
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                anyhow!("message {i} tool_call {j} missing function.name")
+                            })?
+                            .to_string();
+                        let function_arguments = function
+                            .get("arguments")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                anyhow!("message {i} tool_call {j} missing function.arguments")
+                            })?
+                            .to_string();
+                        Ok::<ToolCallData, anyhow::Error>(ToolCallData {
+                            id,
+                            function_name,
+                            function_arguments,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
+        let tool_call_id = mo
+            .get("tool_call_id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         messages.push(Message {
@@ -966,10 +987,7 @@ mod tests {
         let msgs = parse_messages_v1(bytes).expect("parse");
         assert_eq!(msgs.len(), 3);
         assert_eq!(msgs[2].role, "tool");
-        assert_eq!(
-            msgs[2].tool_call_id.as_deref(),
-            Some("call_abc")
-        );
+        assert_eq!(msgs[2].tool_call_id.as_deref(), Some("call_abc"));
         assert!(msgs[2].tool_calls.is_none());
     }
 

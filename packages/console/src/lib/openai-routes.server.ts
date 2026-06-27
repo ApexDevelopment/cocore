@@ -150,13 +150,18 @@ async function checkToolCallSupport(
     pool = pool.filter((p) => allowedDids.has(p.did));
   }
 
-  // Check if at least one provider in the pool supports tool calling.
-  const toolCapable = pool.some((p) => p.supportsToolCalls === true);
+  // Check if at least one provider in the pool has verified tool calling for
+  // this exact model. Legacy providers that predate `toolCallModels` fall back
+  // to the coarse boolean; new providers report a per-model canary-passed set.
+  const toolCapable = pool.some((p) => {
+    if (Array.isArray(p.toolCallModels)) return p.toolCallModels.includes(model);
+    return p.supportsToolCalls === true;
+  });
   if (!toolCapable) {
     return (
       "No connected provider supports tool calling for this model. " +
-      "The provider must be started with --enable-auto-tool-choice " +
-      "(set the COCORE_ENABLE_TOOL_CALLS environment variable)."
+      "The provider must be started with vLLM tool calling enabled and pass " +
+      "the startup forced-tool canary."
     );
   }
   return null;

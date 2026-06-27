@@ -972,9 +972,7 @@ async fn handle_inference_request_inner(
         tool_choice: match (&req.tool_choice, &req.tool_choice_function) {
             // When tool_choice is "required" and a function name is specified,
             // reconstruct the OpenAI object form { type: "function", function: { name } }.
-            (Some(choice), Some(func_name))
-                if choice.as_str() == Some("required") =>
-            {
+            (Some(choice), Some(func_name)) if choice.as_str() == Some("required") => {
                 Some(serde_json::json!({
                     "type": "function",
                     "function": { "name": func_name }
@@ -1195,24 +1193,18 @@ async fn handle_inference_request_inner(
     // so the receipt proves which constrained-generation shape was in
     // effect. We hash the canonical JSON encoding so semantically
     // equivalent schemas produce identical hashes.
-    let output_schema_hash = req
-        .output_schema
-        .as_ref()
-        .and_then(|schema| {
-            to_canonical_bytes(schema)
-                .ok()
-                .map(|bytes| sha256_hex(&bytes))
-        });
+    let output_schema_hash = req.output_schema.as_ref().and_then(|schema| {
+        to_canonical_bytes(schema)
+            .ok()
+            .map(|bytes| sha256_hex(&bytes))
+    });
     // Commit to the tool definitions the provider used, so the receipt
     // proves which functions were available to the model.
-    let tool_schema_hash = req
-        .tools
-        .as_ref()
-        .and_then(|tools| {
-            to_canonical_bytes(tools)
-                .ok()
-                .map(|bytes| sha256_hex(&bytes))
-        });
+    let tool_schema_hash = req.tools.as_ref().and_then(|tools| {
+        to_canonical_bytes(tools)
+            .ok()
+            .map(|bytes| sha256_hex(&bytes))
+    });
 
     let params = receipt::GenerationParams {
         maxTokens: Some(req.max_tokens_out as u64),

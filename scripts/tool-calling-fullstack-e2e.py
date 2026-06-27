@@ -32,6 +32,7 @@ TOOLS = [
         "function": {
             "name": "get_weather",
             "description": "Get the current weather for a city",
+            "strict": True,
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -41,12 +42,21 @@ TOOLS = [
                     }
                 },
                 "required": ["city"],
+                "additionalProperties": False,
             },
         },
     }
 ]
 
 MESSAGES = [{"role": "user", "content": "What is the weather in Tokyo?"}]
+
+FORCED_TOOL_MESSAGES = [
+    {
+        "role": "system",
+        "content": "You are a tool-calling assistant. When get_weather is forced, return exactly that tool call and no prose.",
+    },
+    {"role": "user", "content": "Call get_weather for Tokyo."},
+]
 
 RESPONSE_FORMAT = {
     "type": "json_schema",
@@ -188,7 +198,7 @@ def test_tool_choice_object_form(base_url, api_key, model):
         api_key,
         {
             "model": model,
-            "messages": MESSAGES,
+            "messages": FORCED_TOOL_MESSAGES,
             "tools": TOOLS,
             "tool_choice": {"type": "function", "function": {"name": "get_weather"}},
             "max_tokens": 256,
@@ -216,8 +226,8 @@ def test_tool_choice_object_form(base_url, api_key, model):
         if tc["function"]["name"] == "get_weather":
             print("  PASS: tool_choice object form forced get_weather")
             return True
-    print("  NOTE: model didn't call the forced function (may be model-dependent)")
-    return True
+    print("  FAIL: forced tool_choice did not produce structured tool_calls")
+    return False
 
 
 def test_structured_output(base_url, api_key, model):

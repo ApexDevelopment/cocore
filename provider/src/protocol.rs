@@ -178,16 +178,18 @@ pub struct Register {
     /// stay best-effort. Additive — pre-APNs advisors ignore it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub apns_device_token: Option<String>,
-    /// True when this machine's vllm-mlx was started with
-    /// `--enable-auto-tool-choice`, so the model can parse and emit
-    /// structured tool calls. Absent when tool calling is not enabled
-    /// (the env var `COCORE_ENABLE_TOOL_CALLS` was not set). The
-    /// advisor surfaces this on `/providers` so the console can gate
-    /// tool requests — returning a 400 when tools are sent but no
-    /// provider in the pool supports them. Additive — old advisors
-    /// that don't know the field ignore it.
+    /// True only when at least one subprocess engine has verified vLLM
+    /// tool-call support with a forced-tool startup canary. `tool_call_models`
+    /// carries the per-model subset for new advisors/clients; this boolean is
+    /// retained as the legacy coarse capability. Additive — old advisors that
+    /// don't know the field ignore it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_tool_calls: Option<bool>,
+    /// Model ids whose engines passed the forced-tool startup canary. When
+    /// absent, clients fall back to legacy `supports_tool_calls`; when present,
+    /// tool-capability gating should require the requested model to be listed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_models: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

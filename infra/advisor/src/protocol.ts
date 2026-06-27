@@ -57,12 +57,15 @@ export interface Register {
    *  advisor sends the code-identity challenge here. Omitted on headless
    *  installs, which therefore stay best-effort. Additive. */
   apns_device_token?: string;
-  /** True when this machine's vllm-mlx was started with
-   *  `--enable-auto-tool-choice` (COCORE_ENABLE_TOOL_CALLS env var), so the
-   *  model can parse and emit structured tool calls. Absent when tool calling
-   *  is not enabled. The advisor surfaces this on `/providers` so the console
-   *  can gate tool requests. Additive — old advisors ignore it. */
+  /** True only when at least one model passed the provider's startup
+   *  forced-tool canary. `tool_call_models` carries the per-model verified
+   *  subset for new clients. Additive — old advisors ignore it. */
   supports_tool_calls?: boolean;
+  /** Model ids whose engines passed the provider's forced-tool startup canary.
+   *  When absent, clients fall back to legacy `supports_tool_calls`; when
+   *  present, tool-capability gating should require the requested model to be
+   *  listed. Additive. */
+  tool_call_models?: string[];
 }
 
 /** Content-free crash signature the provider folds into its heartbeat

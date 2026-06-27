@@ -45,6 +45,7 @@ knows when to call `engine.ready() = true`.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import signal
 import stat
@@ -225,6 +226,14 @@ def main() -> None:
             "'auto' which tries all formats."
         ),
     )
+    ap.add_argument(
+        "--default-chat-template-kwargs",
+        default=None,
+        help=(
+            "JSON object passed through to vllm-mlx as default chat_template_kwargs "
+            "for every request (for example: '{\"enable_thinking\": false}')."
+        ),
+    )
     args = ap.parse_args()
 
     socket_path = Path(args.uds)
@@ -290,6 +299,28 @@ def main() -> None:
     )
     srv.load_model(args.model, force_mllm=args.vision)
 
+    if args.default_chat_template_kwargs:
+        try:
+            _kwargs = json.loads(args.default_chat_template_kwargs)
+        except Exception as exc:
+            raise SystemExit(
+                f"--default-chat-template-kwargs must be a JSON object: {exc}"
+            ) from exc
+        if not isinstance(_kwargs, dict):
+            raise SystemExit("--default-chat-template-kwargs must decode to a JSON object")
+        if hasattr(srv, "_default_chat_template_kwargs"):
+            srv._default_chat_template_kwargs = _kwargs
+            print(
+                "[cocore-engine] default chat_template_kwargs configured",
+                flush=True,
+            )
+        else:
+            print(
+                "[cocore-engine] WARNING: --default-chat-template-kwargs was passed "
+                "but this vllm-mlx version does not expose _default_chat_template_kwargs.",
+                flush=True,
+            )
+
     # Enable tool calling when the flag was passed. vllm-mlx uses
     # module-level globals (_enable_auto_tool_choice, _tool_call_parser)
     # that the FastAPI routes read at request time. Setting them here
@@ -298,10 +329,9 @@ def main() -> None:
     #
     # We verify the globals exist on the module before setting them.
     # If they don't, the installed vllm-mlx version doesn't support
-    # tool calling — we warn and continue (the provider's
-    # supportsToolCalls flag will still be advertised, but the model
-    # won't actually emit tool_calls). This is better than silently
-    # setting attributes that nothing reads.
+    # tool calling — we warn and continue. The Rust parent separately
+    # runs a forced-tool startup canary and will not advertise tool
+    # support if this configuration doesn't produce structured tool_calls.
     if args.enable_auto_tool_choice:
         _has_tool_support = hasattr(srv, "_enable_auto_tool_choice")
         if not _has_tool_support:
@@ -324,9 +354,9 @@ def main() -> None:
             # Verify the parser is known. vllm-mlx supports a fixed set;
             # an unknown parser will cause request-time errors.
             _known_parsers = {
-                "auto", "hermes", "mistral", "qwen", "llama",
-                "deepseek", "kimi", "granite", "nemotron", "xlam",
-                "functionary", "glm47",
+                "auto", "hermes", "nous", "mistral", "qwen", "qwen3_xml",
+                "llama", "deepseek", "kimi", "granite", "harmony", "nemotron",
+                "xlam", "functionary", "glm47", "gemma4", "minimax",
             }
             _parser = srv._tool_call_parser
             if _parser not in _known_parsers:
