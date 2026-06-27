@@ -30,7 +30,9 @@ public final class MLXEngine {
     /// everything else loads through `LLMModelFactory`. Both return a uniform
     /// `ModelContainer`, so generation below is identical.
     public static func load(modelDir: String) async throws -> MLXEngine {
-        let config = ModelConfiguration(directory: URL(fileURLWithPath: modelDir))
+        let config = ModelConfiguration(
+            directory: URL(fileURLWithPath: modelDir),
+            extraEOSTokens: extraEOSTokens(modelDir: modelDir))
         let container: ModelContainer
         if isVisionModelDir(modelDir) {
             container = try await VLMModelFactory.shared.loadContainer(configuration: config)
@@ -49,6 +51,62 @@ public final class MLXEngine {
             let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return false }
         return obj["vision_config"] != nil
+    }
+
+    /// Stop tokens that must end generation but that the loaded tokenizer may
+    /// not expose as its single `eosTokenId`.
+    ///
+    /// Instruction-tuned models close each turn with a delimiter token —
+    /// Gemma's `<end_of_turn>`, Qwen/ChatML's `<|im_end|>`, Llama-3's
+    /// `<|eot_id|>` — that is listed in `generation_config.json`'s
+    /// `eos_token_id` and baked into the chat template, yet swift-transformers
+    /// only loads the lone `eos_token` from `tokenizer_config.json` as the
+    /// stop id. Without these the model emits its turn-ender forever (it never
+    /// counts as a stop) until `maxTokens` — the runaway-`<end_of_turn>` bug.
+    ///
+    /// We resolve every id in `generation_config.json`'s `eos_token_id` to its
+    /// string form via `tokenizer_config.json`'s `added_tokens_decoder`, and
+    /// union a small static set of well-known chat delimiters as a safety net
+    /// for models with a missing/partial `generation_config.json`. Strings a
+    /// given model doesn't have resolve to nil downstream
+    /// (`convertTokenToId`) and are simply ignored.
+    private static func extraEOSTokens(modelDir: String) -> Set<String> {
+        var tokens: Set<String> = ["<end_of_turn>", "<|im_end|>", "<|eot_id|>", "<|end|>"]
+        let dir = URL(fileURLWithPath: modelDir)
+
+        // id -> token string, from tokenizer_config.json's added_tokens_decoder.
+        var idToContent: [Int: String] = [:]
+        if let data = try? Data(
+            contentsOf: dir.appendingPathComponent("tokenizer_config.json")),
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let decoder = obj["added_tokens_decoder"] as? [String: Any]
+        {
+            for (idStr, info) in decoder {
+                if let id = Int(idStr), let info = info as? [String: Any],
+                    let content = info["content"] as? String
+                {
+                    idToContent[id] = content
+                }
+            }
+        }
+
+        // eos_token_id (Int or [Int]) from generation_config.json — the
+        // authoritative stop set the model was trained/exported with.
+        if let data = try? Data(
+            contentsOf: dir.appendingPathComponent("generation_config.json")),
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        {
+            var ids: [Int] = []
+            if let one = obj["eos_token_id"] as? Int {
+                ids = [one]
+            } else if let many = obj["eos_token_id"] as? [Int] {
+                ids = many
+            }
+            for id in ids {
+                if let content = idToContent[id] { tokens.insert(content) }
+            }
+        }
+        return tokens
     }
 
     /// Stream a completion token-by-token through `onDelta`, in-process.
