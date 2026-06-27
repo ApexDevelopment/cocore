@@ -10,6 +10,31 @@
 import Database from "better-sqlite3";
 import type { Database as DB } from "better-sqlite3";
 
+/** Pull a record body's `createdAt` (RFC3339 string) if present. Provider
+ *  and job records carry one; the provider agent stamps a fresh value on
+ *  every (re-)publish, and the console stamps one on every owner edit, so
+ *  for those collections `createdAt` is a monotonic "last-published-at"
+ *  version we can order conflicting writes by. Records without it (e.g.
+ *  receipts, attestations) return null and fall back to last-writer-wins. */
+function bodyCreatedAt(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const v = (body as Record<string, unknown>)["createdAt"];
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+/** Whether an incoming record version is STRICTLY older than the one we
+ *  already hold. Compared as parsed instants (not lexicographically) so
+ *  producers that serialize `createdAt` at different sub-second precisions
+ *  still order correctly. Unparseable timestamps compare as "not older" so
+ *  we never silently drop a write we can't reason about. Equal instants are
+ *  NOT older — the later arrival still wins, preserving idempotent replay. */
+function isStaleVersion(incoming: string, existing: string): boolean {
+  const a = Date.parse(incoming);
+  const b = Date.parse(existing);
+  if (Number.isNaN(a) || Number.isNaN(b)) return false;
+  return a < b;
+}
+
 export interface IndexedRecord {
   uri: string;
   cid: string;
@@ -241,6 +266,8 @@ export class Store {
   private deleteStmt;
   private getStmt;
   private getByCollectionStmt;
+  private existingVersionStmt;
+  private guardedUpsertTxn;
 
   constructor(path: string) {
     this.db = new Database(path);
@@ -263,6 +290,29 @@ export class Store {
       `SELECT uri, cid, collection, repo, rkey, body, indexed_at as indexedAt
        FROM records WHERE collection = ?
        ORDER BY indexed_at DESC LIMIT ?`,
+    );
+    this.existingVersionStmt = this.db.prepare(
+      `SELECT json_extract(body, '$.createdAt') AS createdAt FROM records WHERE uri = ?`,
+    );
+    // Version-guarded write as ONE atomic step. We compare timestamps in JS
+    // (see isStaleVersion) rather than in the SQL `ON CONFLICT … WHERE` clause
+    // because the provider agent serializes `createdAt` at sub-millisecond
+    // (µs/ns) RFC3339 precision, which SQLite's date functions can't compare
+    // reliably (julianday/strftime cap at ms and return NULL on extra digits).
+    // Keeping the compare in JS means the read + conditional write straddle two
+    // statements, so wrap them in an IMMEDIATE transaction: it takes the write
+    // lock up front, so a second writer (a future multi-process AppView sharing
+    // this WAL database) can't land between the check and the write and defeat
+    // the guard.
+    this.guardedUpsertTxn = this.db.transaction(
+      (incoming: string, params: Record<string, unknown>) => {
+        const row = this.existingVersionStmt.get(params["uri"]) as
+          | { createdAt: string | null }
+          | undefined;
+        const existing = row?.createdAt ?? null;
+        if (existing !== null && isStaleVersion(incoming, existing)) return;
+        this.upsertStmt.run(params);
+      },
     );
   }
 
@@ -295,14 +345,36 @@ export class Store {
   }
 
   upsert(rec: Omit<IndexedRecord, "indexedAt">): void {
-    this.upsertStmt.run({
+    // Version guard: never let a stale, out-of-order, or replayed ingest
+    // clobber a newer record body. The AppView is a cache the dashboard
+    // reads, fed by two independent, unordered writers — the console's
+    // best-effort bridge mirror (fired the instant an owner edits a setting)
+    // and the firehose (which lags and can re-deliver older commits on
+    // reconnect/backfill). A blind `INSERT OR REPLACE` here makes the LAST
+    // ARRIVAL win regardless of which write is actually newer, so a lagging
+    // firehose replay of a pre-edit provider commit silently reverts an
+    // owner's just-saved `shareLocation` / `proBono` (and every other
+    // owner-set field) in the dashboard even though their PDS — the real
+    // source of truth — is correct. Drop the write when the incoming body
+    // is strictly older than what we hold; equal/newer still applies, so
+    // idempotent replay and legitimate updates are unaffected. Records with
+    // no comparable `createdAt` keep the prior last-writer-wins behavior.
+    const params = {
       uri: rec.uri,
       cid: rec.cid,
       collection: rec.collection,
       repo: rec.repo,
       rkey: rec.rkey,
       body: JSON.stringify(rec.body),
-    });
+    };
+    const incoming = bodyCreatedAt(rec.body);
+    if (incoming === null) {
+      // No version to compare — plain last-writer-wins, no read needed.
+      this.upsertStmt.run(params);
+      return;
+    }
+    // Versioned record — guard the write atomically (see guardedUpsertTxn).
+    this.guardedUpsertTxn.immediate(incoming, params);
   }
 
   get(uri: string): IndexedRecord | null {
