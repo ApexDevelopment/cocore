@@ -222,18 +222,12 @@ async function main(): Promise<void> {
   // /ttft serve the last known figures right after a restart instead of the
   // blank "—" headline they'd otherwise show until jobs flow again. Hydrated
   // samples report `cached: true` until live traffic refills the window.
+  // The file names identify which window, and hydrateLatencyWindow logs the
+  // resident count + snapshot age itself, so no extra logging is needed here.
   const ackLatencyPath = DATA_DIR ? join(DATA_DIR, "ack-latency.json") : null;
   const ttftLatencyPath = DATA_DIR ? join(DATA_DIR, "ttft-latency.json") : null;
-  if (ackLatencyPath) {
-    const n = await hydrateLatencyWindow(ack, ackLatencyPath);
-    if (n > 0)
-      console.error(`[advisor] hydrated ${n} ack-latency sample(s) from ${ackLatencyPath}`);
-  }
-  if (ttftLatencyPath) {
-    const n = await hydrateLatencyWindow(ttft, ttftLatencyPath);
-    if (n > 0)
-      console.error(`[advisor] hydrated ${n} ttft-latency sample(s) from ${ttftLatencyPath}`);
-  }
+  if (ackLatencyPath) await hydrateLatencyWindow(ack, ackLatencyPath);
+  if (ttftLatencyPath) await hydrateLatencyWindow(ttft, ttftLatencyPath);
   const sessions = new SessionManager({
     idleTimeoutMs: SESSION_IDLE_TIMEOUT_MS,
     firstChunkTimeoutMs: SESSION_FIRST_CHUNK_TIMEOUT_MS,

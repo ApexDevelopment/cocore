@@ -48,6 +48,21 @@ describe("latency-store", () => {
     expect(w.stats().sampleCount).toBe(0);
   });
 
+  it("returns the net resident count, not the offered count (negatives + capacity)", async () => {
+    const path = join(dir, "overcount.json");
+    // A negative (dropped by the window) plus more valid samples than capacity.
+    await writeFile(
+      path,
+      JSON.stringify({ samples: [-5, 10, 20, 30, 40], updatedAt: "z" }),
+      "utf8",
+    );
+    const w = new LatencyWindow(3);
+    // -5 dropped; only the last 3 of [10,20,30,40] fit → resident count is 3,
+    // not the 5 offered nor the 4 finite — the log must not overcount.
+    expect(await hydrateLatencyWindow(w, path)).toBe(3);
+    expect(w.snapshot()).toEqual([20, 30, 40]);
+  });
+
   it("filters non-numeric samples on read", async () => {
     const path = join(dir, "dirty.json");
     await writeFile(

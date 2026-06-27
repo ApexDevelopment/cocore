@@ -27,8 +27,12 @@ interface PersistedLatency {
 }
 
 /** Seed `window` from the snapshot at `path`. Returns the number of samples
- *  hydrated (0 when the file is absent, empty, or unreadable). Never throws —
- *  a cold/corrupt cache simply yields an empty window. */
+ *  actually resident afterwards (0 when the file is absent, empty, or
+ *  unreadable). Never throws — a cold/corrupt cache simply yields an empty
+ *  window. Logs the count and the snapshot's age so an operator can spot a
+ *  headline being seeded from a long-dormant volume; we intentionally serve
+ *  even an old snapshot (that's the point — don't blank the headline on
+ *  restart), and the `cached` flag on `stats()` marks it to API consumers. */
 export async function hydrateLatencyWindow(window: LatencyWindow, path: string): Promise<number> {
   let raw: string;
   try {
@@ -39,16 +43,48 @@ export async function hydrateLatencyWindow(window: LatencyWindow, path: string):
   }
   try {
     const parsed = JSON.parse(raw) as Partial<PersistedLatency>;
+    // Match `hydrate()`'s own validation exactly (finite AND non-negative) so
+    // the resident count below can't be thrown off by samples it would drop.
     const samples = Array.isArray(parsed?.samples)
-      ? parsed.samples.filter((s): s is number => typeof s === "number" && Number.isFinite(s))
+      ? parsed.samples.filter(
+          (s): s is number => typeof s === "number" && Number.isFinite(s) && s >= 0,
+        )
       : [];
     if (samples.length === 0) return 0;
+    // Net samples resident after validation + capacity bounding — never an
+    // overcount even if the snapshot exceeds the window's capacity.
+    const before = window.snapshot().length;
     window.hydrate(samples);
-    return samples.length;
+    const hydrated = window.snapshot().length - before;
+    if (hydrated > 0) {
+      const age = snapshotAge(parsed.updatedAt);
+      console.error(
+        `[latency-store] hydrated ${hydrated} sample(s) from ${path}${age ? ` (snapshot ${age})` : ""}`,
+      );
+    }
+    return hydrated;
   } catch {
     // Corrupt JSON — ignore and start cold rather than crash.
     return 0;
   }
+}
+
+/** Human-readable age of a persisted snapshot from its RFC3339 `updatedAt`,
+ *  or null when missing/unparseable/future-dated. Coarse on purpose — it's a
+ *  log breadcrumb for spotting stale hydrations, not a precise duration. */
+function snapshotAge(updatedAt: unknown): string | null {
+  if (typeof updatedAt !== "string") return null;
+  const t = Date.parse(updatedAt);
+  if (!Number.isFinite(t)) return null;
+  const ms = Date.now() - t;
+  if (ms < 0) return null;
+  const s = Math.round(ms / 1000);
+  if (s < 90) return `age ${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 90) return `age ${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `age ${h}h`;
+  return `age ${Math.round(h / 24)}d`;
 }
 
 /** Atomically write `window`'s current samples to `path`. Creates the parent
