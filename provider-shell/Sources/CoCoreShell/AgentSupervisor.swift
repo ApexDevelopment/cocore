@@ -742,6 +742,35 @@ final class AgentSupervisor {
         }
     }
 
+    /// This machine's receipt-signing P-256 public key (base64 of the raw
+    /// 64-byte X‖Y point — the value published as `attestation.publicKey`), read
+    /// by running the bundled CLI's `agent pubkey` (which loads the same
+    /// Secure-Enclave identity the serve loop signs with). Returns nil on any
+    /// error. The Secure Mode wizard threads this into the coordinator's
+    /// `request-attestation` call so the MDM DeviceInformation attestation binds
+    /// to the signing key (`DeviceAttestationNonce = sha256(pubkey)`). Same
+    /// synchronous shell-out pattern as `probeTier`.
+    nonisolated static func agentPubkey() -> String? {
+        guard let bin = locateBinary() else { return nil }
+        let p = Process()
+        p.executableURL = bin
+        p.arguments = ["agent", "pubkey"]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        do {
+            try p.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            guard p.terminationStatus == 0 else { return nil }
+            let out = (String(data: data, encoding: .utf8) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return out.isEmpty ? nil : out
+        } catch {
+            return nil
+        }
+    }
+
     /// The binary to run for `agent serve`. On a machine the owner opted into
     /// attested-confidential we spawn the nested, measured push-receiver bundle
     /// `Contents/CoCoreProvider.app/Contents/MacOS/cocore-provider` — it holds
