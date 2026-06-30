@@ -44,7 +44,7 @@ import { AppPasswordSession, createRecordViaSession } from "@cocore/exchange/app
 import { parsePrivateJwk, signRecord } from "@cocore/exchange/signing";
 import { TokenLedger, type TokenLedgerPolicy } from "@cocore/exchange/token-balance";
 import { startAutoresponder } from "./autorespond.ts";
-import { createReceiptPipeline } from "./receipt-pipeline.ts";
+import { createReceiptPipeline, type ReconcileOptions } from "./receipt-pipeline.ts";
 import { makePdsBackedResolver } from "./resolve-record.ts";
 
 // Optional secret: read as Redacted (never serializes into logs/traces)
@@ -894,6 +894,68 @@ async function main() {
           ),
         });
       }).pipe(Effect.withSpan("services.admin.pipelineState")),
+    ),
+    // Operator-triggered settlement backfill. Re-drives unsettled receipts
+    // through the same idempotent pipeline the periodic reconcile uses, but
+    // uncapped/targeted and clearing the in-memory rejected set so receipts a
+    // prior pass rejected (e.g. before a verification fix shipped) get a fresh
+    // attempt. Idempotent — safe to run repeatedly. Operator-secret gated.
+    //
+    //   curl -XPOST -H "authorization: Bearer $SECRET" \
+    //     -d '{"limit":5000,"providers":["did:plc:…"],"since":"2026-06-20T00:00:00Z"}' \
+    //     .../xrpc/dev.cocore.admin.backfillSettlements
+    //
+    // Body (all optional): limit (default 5000, max 20000), clearRejected
+    // (default true), providers[] (filter by receipt repo DID), since/until
+    // (RFC3339, filter by receipt.completedAt). Returns a summary bucketed by
+    // outcome + per-finding-code rejection reasons, so you can see exactly what
+    // settled and why the rest couldn't (e.g. authorization-expired).
+    HttpRouter.post(
+      "/xrpc/dev.cocore.admin.backfillSettlements",
+      Effect.gen(function* () {
+        if (!authOk(yield* header("authorization"))) return err(401, { error: "unauthorized" });
+        const parsed = yield* Effect.either(jsonBody);
+        const b = (parsed._tag === "Right" ? parsed.right : {}) as Record<string, unknown>;
+        const limit =
+          typeof b["limit"] === "number" && b["limit"] > 0
+            ? Math.min(Math.floor(b["limit"]), 20_000)
+            : 5000;
+        const clearRejected = b["clearRejected"] !== false;
+        const providers = Array.isArray(b["providers"])
+          ? (b["providers"].filter(
+              (x) => typeof x === "string" && x.startsWith("did:"),
+            ) as string[])
+          : undefined;
+        const since = typeof b["since"] === "string" ? Date.parse(b["since"]) : Number.NaN;
+        const until = typeof b["until"] === "string" ? Date.parse(b["until"]) : Number.NaN;
+        const needsTime = Number.isFinite(since) || Number.isFinite(until);
+        const filter =
+          (providers && providers.length > 0) || needsTime
+            ? (rec: IndexedRecord): boolean => {
+                if (providers && providers.length > 0 && !providers.includes(rec.repo))
+                  return false;
+                if (needsTime) {
+                  const body = rec.body as { completedAt?: string } | null;
+                  const t = body?.completedAt ? Date.parse(body.completedAt) : Number.NaN;
+                  if (Number.isFinite(since) && !(t >= since)) return false;
+                  if (Number.isFinite(until) && !(t <= until)) return false;
+                }
+                return true;
+              }
+            : undefined;
+        const backfillOpts: ReconcileOptions = {
+          limit,
+          clearRejected,
+          ...(filter ? { filter } : {}),
+        };
+        const summary = yield* Effect.promise(() =>
+          pipeline.reconcileUnsettledReceipts(backfillOpts),
+        );
+        console.error(
+          `backfill: scanned=${summary.scanned} attempted=${summary.attempted} settled=${summary.settled} rejected=${summary.rejected} resolveFailed=${summary.stillResolveFailed} clearedRejected=${summary.clearedRejected} byCode=${JSON.stringify(summary.rejectedByCode)}`,
+        );
+        return ok({ ok: true, summary });
+      }).pipe(Effect.withSpan("services.admin.backfillSettlements")),
     ),
     // --- Token-ledger HTTP surface -------------------------------
     HttpRouter.get(

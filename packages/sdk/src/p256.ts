@@ -58,16 +58,25 @@ export async function verifyP256(
 }
 
 /** Verify a receipt body's `enclaveSignature` against an attestation's
- *  `publicKey`. Strips the signature field, canonicalises everything
- *  else, and runs WebCrypto. Returns false if the math fails or any
- *  field is missing/malformed. */
+ *  `publicKey`. Strips the signature field AND any `$type` lexicon framing,
+ *  canonicalises everything else, and runs WebCrypto. Returns false if the
+ *  math fails or any field is missing/malformed.
+ *
+ *  The `$type` strip is essential and mirrors {@link verifyAttestationSignature}:
+ *  the provider signs the receipt body BEFORE the record is written to its PDS,
+ *  so the signed canonical bytes never include `$type`. An indexed/stored
+ *  record DOES carry `$type` (atproto adds it), and because `$type` sorts to
+ *  the front of the canonical JSON, leaving it in shifts every byte and makes
+ *  the signature fail. Stripping it is a no-op when absent, so this is always
+ *  safe. (Omitting this strip silently rejected every receipt once they began
+ *  flowing through the indexer with `$type` populated — the 2026-06 stall.) */
 export async function verifyReceiptSignature(
   receipt: { enclaveSignature?: string } & Record<string, unknown>,
   attestationPublicKeyB64: string,
 ): Promise<boolean> {
   const sig = receipt.enclaveSignature;
   if (!sig) return false;
-  const { enclaveSignature: _omit, ...signed } = receipt;
+  const { enclaveSignature: _omit, $type: _type, ...signed } = receipt as Record<string, unknown>;
   const message = new TextEncoder().encode(canonicalize(signed));
   try {
     return await verifyP256(attestationPublicKeyB64, sig, message);
