@@ -92,8 +92,10 @@ export interface ReceiptPipeline {
 
   /** Scan the indexed-receipt table for receipts that don't yet
    *  have a settlement record and re-invoke `exchange.onReceipt`
-   *  for each. Returns a summary the caller can log. */
-  reconcileUnsettledReceipts(): Promise<ReconcileSummary>;
+   *  for each. Returns a summary the caller can log. With `opts` it
+   *  doubles as an operator backfill (raise the limit, clear the
+   *  rejected set, target a subset). */
+  reconcileUnsettledReceipts(opts?: ReconcileOptions): Promise<ReconcileSummary>;
 
   /** Diagnostics: the current pending-by-missing-uri map.
    *  Read-only snapshot; tests assert against this. */
@@ -141,6 +143,29 @@ export interface ReconcileSummary {
    *  before this counter existed the reconcile loop re-attempted
    *  (and re-logged) every terminal reject on every tick, forever. */
   skippedRejected: number;
+  /** Per-finding-code count of receipts rejected this pass. Lets a backfill
+   *  operator see WHY the unsettleable ones failed (e.g.
+   *  `{ "authorization-expired": 40, "signature-invalid": 3 }`). */
+  rejectedByCode: Record<string, number>;
+  /** How many entries were dropped from the in-memory rejected set at the
+   *  start of this pass (only when `clearRejected` was requested). */
+  clearedRejected: number;
+}
+
+/** Options for a reconcile / backfill pass. Defaults reproduce the periodic
+ *  reconcile loop's behavior, so `reconcileUnsettledReceipts()` is unchanged. */
+export interface ReconcileOptions {
+  /** Max receipts to scan this pass. Defaults to the configured reconcile
+   *  batch size; a backfill raises it to drain a backlog larger than one tick. */
+  limit?: number;
+  /** Drop the in-memory "already rejected" set before scanning, so receipts
+   *  a prior pass rejected get re-attempted. Use after deploying a fix that
+   *  changes a verdict (e.g. the receipt-signature fix) — otherwise the loop
+   *  skips them forever. A normal periodic pass leaves this false. */
+  clearRejected?: boolean;
+  /** Optional predicate to target a subset (e.g. a provider DID or a time
+   *  window). Receipts that don't match are skipped (not counted as attempts). */
+  filter?: (rec: IndexedRecord) => boolean;
 }
 
 /** The collection segment of an at-uri (`at://<did>/<collection>/<rkey>`),
@@ -381,7 +406,9 @@ export function createReceiptPipeline(opts: ReceiptPipelineOptions): ReceiptPipe
     }
   }
 
-  async function reconcileUnsettledReceipts(): Promise<ReconcileSummary> {
+  async function reconcileUnsettledReceipts(
+    reconcileOpts: ReconcileOptions = {},
+  ): Promise<ReconcileSummary> {
     const summary: ReconcileSummary = {
       scanned: 0,
       attempted: 0,
@@ -389,7 +416,16 @@ export function createReceiptPipeline(opts: ReceiptPipelineOptions): ReceiptPipe
       stillResolveFailed: 0,
       rejected: 0,
       skippedRejected: 0,
+      rejectedByCode: {},
+      clearedRejected: 0,
     };
+    // Backfill affordance: drop the in-memory "already rejected" set so
+    // receipts a prior pass rejected get re-attempted (e.g. after deploying a
+    // fix that changes a verdict). A normal periodic pass leaves it intact.
+    if (reconcileOpts.clearRejected) {
+      summary.clearedRejected = rejectedReceipts.size;
+      rejectedReceipts.clear();
+    }
     // Pull settlements first; build the "already settled" set in
     // one pass keyed by receipt URI.
     const settlements = opts.store.listByCollection(
@@ -402,10 +438,12 @@ export function createReceiptPipeline(opts: ReceiptPipelineOptions): ReceiptPipe
       const uri = body?.receipt?.uri;
       if (typeof uri === "string") alreadySettled.add(uri);
     }
-    const receipts = opts.store.listByCollection("dev.cocore.compute.receipt", reconcileBatchSize);
+    const limit = reconcileOpts.limit ?? reconcileBatchSize;
+    const receipts = opts.store.listByCollection("dev.cocore.compute.receipt", limit);
     summary.scanned = receipts.length;
     for (const r of receipts) {
       if (alreadySettled.has(r.uri)) continue;
+      if (reconcileOpts.filter && !reconcileOpts.filter(r)) continue;
       if (rejectedReceipts.has(r.uri)) {
         summary.skippedRejected += 1;
         continue;
@@ -418,7 +456,16 @@ export function createReceiptPipeline(opts: ReceiptPipelineOptions): ReceiptPipe
       if (!outcome) continue;
       if (outcome.kind === "settled" || outcome.kind === "duplicate") summary.settled += 1;
       else if (outcome.kind === "resolve-failed") summary.stillResolveFailed += 1;
-      else if (outcome.kind === "rejected") summary.rejected += 1;
+      else if (outcome.kind === "rejected") {
+        summary.rejected += 1;
+        // Bucket by finding code so a backfill operator sees WHY the
+        // unsettleable receipts failed (e.g. expired authorizations vs a
+        // signature that still doesn't verify).
+        const codes = outcome.report.findings?.map((f) => f.code) ?? ["unknown"];
+        for (const c of codes.length > 0 ? codes : ["unknown"]) {
+          summary.rejectedByCode[c] = (summary.rejectedByCode[c] ?? 0) + 1;
+        }
+      }
     }
     return summary;
   }

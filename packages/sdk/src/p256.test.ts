@@ -91,6 +91,75 @@ test("verifyReceiptSignature: missing signature returns false", async () => {
   assert.equal(ok, false);
 });
 
+test("verifyReceiptSignature: ignores $type lexicon framing (2026-06 stall regression)", async () => {
+  // The provider signs the receipt body BEFORE writing it to its PDS, so the
+  // signed canonical bytes never include `$type`. The indexed/stored record
+  // DOES carry `$type` (atproto adds it), and `$type` sorts to the front of
+  // the canonical JSON. The verifier must strip it; otherwise every receipt
+  // is rejected the moment it flows through the indexer with `$type`
+  // populated — exactly what silently broke settlement in 2026-06.
+  //
+  // Self-contained (no Rust fixture): mint a P-256 key, sign the body WITHOUT
+  // `$type` (as the provider does), then verify the STORED form WITH `$type`.
+  const kp = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+    "sign",
+    "verify",
+  ]);
+  const rawPub = new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey)); // 0x04||X||Y
+  const pubB64 = btoa(String.fromCharCode(...rawPub.subarray(1))); // X||Y (64 bytes)
+
+  const body = {
+    job: { uri: "at://did:plc:req/dev.cocore.compute.job/j1", cid: "bafyjob" },
+    requester: "did:plc:req",
+    model: "m",
+    inputCommitment: "0".repeat(64),
+    outputCommitment: "1".repeat(64),
+    tokens: { in: 1, out: 2 },
+    startedAt: "2026-01-01T00:00:00Z",
+    completedAt: "2026-01-01T00:00:01Z",
+    price: { amount: 1, currency: "CC" },
+    attestation: { uri: "at://did:plc:prov/dev.cocore.compute.attestation/a1", cid: "bafyatt" },
+  };
+  const msg = new TextEncoder().encode(canonicalize(body));
+  const rawSig = new Uint8Array(
+    await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, kp.privateKey, msg),
+  );
+  const derB64 = btoa(String.fromCharCode(...rawToDer(rawSig)));
+
+  // The exact signed form (no $type) verifies.
+  assert.equal(
+    await verifyReceiptSignature({ ...body, enclaveSignature: derB64 }, pubB64),
+    true,
+    "signed body (no $type) must verify",
+  );
+  // The STORED form the indexer presents (with $type) must ALSO verify.
+  assert.equal(
+    await verifyReceiptSignature(
+      { $type: "dev.cocore.compute.receipt", ...body, enclaveSignature: derB64 },
+      pubB64,
+    ),
+    true,
+    "stored body (with $type) must verify — $type must be stripped",
+  );
+});
+
+/** Inverse of {@link derToRawSignature}: P-1363 raw r||s (64 bytes, what
+ *  WebCrypto's ECDSA sign emits) → DER SEQUENCE{INTEGER r, INTEGER s} (what
+ *  verifyP256 expects). Test-only. */
+function rawToDer(raw: Uint8Array): Uint8Array {
+  const toInt = (b: Uint8Array): number[] => {
+    let i = 0;
+    while (i < b.length - 1 && b[i] === 0) i++;
+    let v = Array.from(b.subarray(i));
+    if ((v[0]! & 0x80) !== 0) v = [0x00, ...v];
+    return [0x02, v.length, ...v];
+  };
+  const r = toInt(raw.subarray(0, 32));
+  const s = toInt(raw.subarray(32, 64));
+  const body = [...r, ...s];
+  return Uint8Array.from([0x30, body.length, ...body]);
+}
+
 function findFixture(): string {
   // packages/sdk/src/ → ../../../target/
   const here = new URL(".", import.meta.url).pathname;

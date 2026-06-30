@@ -570,4 +570,69 @@ describe("ReceiptPipeline", () => {
       },
     ]);
   });
+
+  it("backfill: clearRejected re-attempts a previously-rejected receipt + reports reasons", async () => {
+    // Mirrors the recovery flow: a receipt rejected under the old code (e.g.
+    // signature-invalid) is remembered and skipped — until a backfill with
+    // clearRejected drops the memory and re-drives it through the (now-fixed)
+    // verifier.
+    const jobUri = "at://did:plc:requester/dev.cocore.compute.job/jb";
+    const attUri = "at://did:plc:provider/dev.cocore.compute.attestation/ab";
+    const { pipeline } = setup({
+      exchangeResolved: new Set([jobUri, attUri]),
+      rejectWithFindings: ["signature-invalid"],
+    });
+    const receipt = makeReceipt({
+      rkey: "rbf",
+      providerDid: "did:plc:provider",
+      requesterDid: "did:plc:requester",
+      jobUri,
+      attestationUri: attUri,
+    });
+    store.upsert(receipt);
+
+    const first = await pipeline.reconcileUnsettledReceipts();
+    expect(first).toMatchObject({ attempted: 1, rejected: 1 });
+    expect(first.rejectedByCode).toEqual({ "signature-invalid": 1 });
+
+    // Default pass: skipped (terminal-reject memory).
+    const second = await pipeline.reconcileUnsettledReceipts();
+    expect(second).toMatchObject({ attempted: 0, skippedRejected: 1 });
+
+    // Backfill: clearRejected drops the memory so it's re-attempted.
+    const third = await pipeline.reconcileUnsettledReceipts({ clearRejected: true });
+    expect(third).toMatchObject({ attempted: 1, rejected: 1, clearedRejected: 1 });
+  });
+
+  it("backfill: filter targets a subset (by provider repo)", async () => {
+    const jobA = "at://did:plc:requester/dev.cocore.compute.job/ja";
+    const attA = "at://did:plc:provA/dev.cocore.compute.attestation/aa";
+    const jobB = "at://did:plc:requester/dev.cocore.compute.job/jb2";
+    const attB = "at://did:plc:provB/dev.cocore.compute.attestation/ab2";
+    const { pipeline, exchange } = setup({
+      exchangeResolved: new Set([jobA, attA, jobB, attB]),
+    });
+    const rA = makeReceipt({
+      rkey: "ra",
+      providerDid: "did:plc:provA",
+      requesterDid: "did:plc:requester",
+      jobUri: jobA,
+      attestationUri: attA,
+    });
+    const rB = makeReceipt({
+      rkey: "rb",
+      providerDid: "did:plc:provB",
+      requesterDid: "did:plc:requester",
+      jobUri: jobB,
+      attestationUri: attB,
+    });
+    store.upsert(rA);
+    store.upsert(rB);
+
+    const summary = await pipeline.reconcileUnsettledReceipts({
+      filter: (rec) => rec.repo === "did:plc:provA",
+    });
+    expect(summary.attempted).toBe(1);
+    expect(exchange.settled).toEqual([rA.uri]);
+  });
 });
