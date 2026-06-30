@@ -533,7 +533,7 @@ export function MachineDetail({ rkey }: { rkey: string }) {
             <dt {...stylex.props(styles.kvDt)}>Confidential tier</dt>
             <dd {...stylex.props(styles.kvDd)}>
               {m.tier === "attested-confidential"
-                ? "🔒 Confidential — the operator cannot read your prompts"
+                ? "🔒 Confidential — sealed so the operator has no ordinary way to read your prompts"
                 : m.desiredTier === "attested-confidential"
                   ? "Upgrade pending — opted in; finishing on the next serve"
                   : "Best-effort — fast, but the operator can read prompts"}
@@ -573,9 +573,9 @@ export function MachineDetail({ rkey }: { rkey: string }) {
             ) : (
               <>
                 <LabelText variant="secondary">
-                  Optional: upgrade this machine to the confidential tier so the operator can&apos;t
-                  read prompts. It won&apos;t change how this machine serves today — you can turn it
-                  off anytime.
+                  Optional: upgrade this machine to the confidential tier so the operator has no
+                  ordinary way to read prompts. It won&apos;t change how this machine serves today —
+                  you can turn it off anytime.
                 </LabelText>
                 <Button
                   variant="primary"

@@ -155,7 +155,7 @@ struct StatusRows: View {
             switch state.confidentialPhase {
             case .active:
                 secureCaption(
-                    "Requests run sealed inside the measured, signed agent, so not even you — this Mac's operator — can read what requestors send or receive. That unreadable-by-the-operator guarantee is what requestors get.",
+                    "Requests run sealed inside the measured, signed agent, under a hardened runtime with no subprocess to tap — so you, this Mac's operator, have no ordinary way to read what requestors send or receive. That's the guarantee requestors get. (It's a software-sealed posture, not a hardware enclave: it holds as long as macOS and the signed build aren't compromised.)",
                     .secondary)
             case .applying(let reason):
                 // The interstitial that fixes "I have to toggle until it takes":
@@ -166,7 +166,7 @@ struct StatusRows: View {
                     .orange)
             case .off:
                 secureCaption(
-                    "Requests run in a local helper process that you, this Mac's operator, could read — fine for non-sensitive work. Enable confidential to seal them so requestors get a no-snooping guarantee. The confidential engine serves Qwen2 / Qwen3 / Llama / Gemma / Phi-class models.",
+                    "Requests run in a local helper process that you, this Mac's operator, could read — fine for non-sensitive work. Enable confidential to seal them inside the measured agent so you have no ordinary way to read them. The confidential engine serves Qwen2 / Qwen3 / Llama / Gemma / Phi-class models.",
                     .secondary)
             }
             if let setConfidential = onSetConfidential {

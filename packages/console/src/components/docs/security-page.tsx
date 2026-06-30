@@ -55,22 +55,25 @@ export function SecurityDocsPage() {
         </p>
 
         <h2 {...stylex.props(docsStyles.h2)}>
-          The Confidential tier — “the operator can&apos;t read the prompts”
+          The Confidential tier — sealing prompts from the machine&apos;s operator
         </h2>
         <p {...stylex.props(docsStyles.prose)}>
           This is the guarantee that matters to a <strong>requestor</strong>: when you send a prompt
-          to a confidential provider, the machine&apos;s own operator cannot read it. A best-effort
-          provider runs inference in a helper process the operator controls and could observe. A
-          confidential provider instead runs inference{" "}
-          <strong>entirely inside the measured, signed co/core agent</strong> — the in-process
-          engine, with no subprocess and no IPC to tap — so the plaintext never leaves the attested
-          binary. There is no observation surface for the operator to use.
+          to a confidential provider, the machine&apos;s own operator has{" "}
+          <em>no ordinary, supported way</em> to read it. A best-effort provider runs inference in a
+          helper process the operator controls and can freely observe. A confidential provider
+          instead runs inference <strong>entirely inside the measured, signed co/core agent</strong>{" "}
+          — the in-process engine, with no subprocess and no IPC to tap — so the plaintext stays
+          inside the attested binary, under a hardened runtime with library validation and
+          anti-debugging. The operator&apos;s everyday tools for looking inside a running program —
+          reading another process&apos;s memory, attaching a debugger, swapping in a logging build —
+          don&apos;t reach it.
         </p>
         <p {...stylex.props(docsStyles.prose)}>
           “Operator” here means the person running the provider machine. If you&apos;re an operator
-          reading this in the app: confidential means that <em>you</em> can&apos;t read what
-          requestors send you — and that&apos;s the point. It&apos;s what lets requestors trust your
-          machine with sensitive work.
+          reading this in the app: confidential means that <em>you</em> have no ordinary way to read
+          what requestors send you — and that&apos;s the point. It&apos;s what lets requestors trust
+          your machine with sensitive work.
         </p>
         <p {...stylex.props(docsStyles.prose)}>
           How it&apos;s proven, so a requestor doesn&apos;t have to take the operator&apos;s word
@@ -81,14 +84,41 @@ export function SecurityDocsPage() {
           advertise the <strong>attested-confidential</strong> tier.
         </p>
 
+        <h2 {...stylex.props(docsStyles.h2)}>What the confidential tier is — and isn&apos;t</h2>
+        <p {...stylex.props(docsStyles.prose)}>
+          Be precise about the <em>kind</em> of guarantee this is, because it&apos;s easy to
+          overstate. The confidential tier is <strong>not</strong> a hardware trusted-execution
+          environment (TEE) in the sense of Intel SGX, AMD SEV-SNP, or AWS Nitro Enclaves.
+          Apple&apos;s Secure Enclave protects the device&apos;s signing keys and produces the
+          attestation, but it does <strong>not</strong> run the model — your prompt and the model
+          weights execute in ordinary macOS user space and on the GPU, like any other app.
+        </p>
+        <p {...stylex.props(docsStyles.prose)}>
+          What seals them from the operator is the{" "}
+          <strong>verified platform-security posture</strong>, not memory isolation in silicon: code
+          signing, System Integrity Protection, the hardened runtime, library validation,
+          anti-debugging, disabled core dumps, and the absence of any subprocess or IPC to tap.
+          Under that posture the operator has no <em>ordinary</em> path to the plaintext — but the
+          guarantee still rests on the OS and the signed-binary supply chain being intact. A
+          vulnerability in macOS or in the agent, or a maliciously substituted signed build, could
+          still expose plaintext. So the honest claim is a raised bar, not an absolute: confidential
+          moves the trust from <em>“trust the machine&apos;s operator”</em> to{" "}
+          <em>“trust Apple&apos;s platform security and co/core&apos;s measured, signed build”</em>{" "}
+          — a meaningful shift, but a different and shallower one than a hardware enclave that
+          isolates memory from the host itself. If you need that stronger property, a hardware-TEE
+          provider is the right tool; the confidential tier is the strongest guarantee reachable on
+          stock Apple hardware without one.
+        </p>
+
         <h2 {...stylex.props(docsStyles.h2)}>Why they&apos;re independent</h2>
         <p {...stylex.props(docsStyles.prose)}>
           <strong>Neither</strong> — fast best-effort serving: a real-enough machine whose operator
           can read prompts. <strong>Secure Mode only</strong> — proven genuine hardware, but
           inference still runs where the operator can read it. <strong>Confidential only</strong> —
-          the operator can&apos;t read prompts, but you&apos;re trusting the code-identity proof
-          without an Apple hardware-root attestation of the silicon. <strong>Both</strong> — genuine
-          attested hardware <em>and</em> a sealed, operator-blind inference path.
+          the operator has no ordinary way to read prompts, but you&apos;re trusting the
+          code-identity proof without an Apple hardware-root attestation of the silicon.{" "}
+          <strong>Both</strong> — genuine attested hardware <em>and</em> a sealed inference path the
+          operator can&apos;t ordinarily read.
         </p>
 
         <h2 {...stylex.props(docsStyles.h2)}>The model constraint for operators</h2>
