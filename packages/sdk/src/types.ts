@@ -17,7 +17,8 @@ export interface StrongRef {
 
 export type TrustLevel = "self-attested" | "hardware-attested";
 /** Confidentiality tier — whether the prompt was provably handled only inside
- *  a measured, signed binary the owner cannot read. Distinct from TrustLevel.
+ *  a measured, signed binary, under a hardened posture the owner has no ordinary
+ *  way to read (a software seal, not a hardware enclave). Distinct from TrustLevel.
  *  A verifier MUST recompute this from evidence (see {@link verifyProviderForSeal})
  *  and never trust a self-asserted value. */
 export type Tier = "attested-confidential" | "best-effort";
