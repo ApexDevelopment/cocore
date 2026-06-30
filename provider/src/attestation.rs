@@ -576,10 +576,8 @@ mod tests {
         let mut uncompressed = [0u8; 65];
         uncompressed[0] = 0x04;
         uncompressed[1..].copy_from_slice(&pub_bytes);
-        let vk = VerifyingKey::from_encoded_point(
-            &EncodedPoint::from_bytes(uncompressed).unwrap(),
-        )
-        .unwrap();
+        let vk = VerifyingKey::from_encoded_point(&EncodedPoint::from_bytes(uncompressed).unwrap())
+            .unwrap();
         let sig = Signature::from_der(&sig_der).unwrap();
         vk.verify(&canonical, &sig)
             .expect("stored record must verify against the signed canonical bytes");
