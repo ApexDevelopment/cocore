@@ -481,7 +481,10 @@ final class ModelManager: ObservableObject {
         CatalogEntry(nsid: "mlx-community/Qwen3.5-0.8B-MLX-4bit", label: "Qwen 3.5 0.8B", minRamGB: 4, recommended: true, blurb: "Tiny & fast — fits almost any Mac."),
         CatalogEntry(nsid: "mlx-community/Qwen3.5-2B-MLX-4bit", label: "Qwen 3.5 2B", minRamGB: 6, recommended: true, blurb: "Small, snappy general chat model."),
         CatalogEntry(nsid: "mlx-community/Qwen3.5-4B-MLX-4bit", label: "Qwen 3.5 4B", minRamGB: 8, recommended: true, blurb: "Solid all-rounder for everyday work."),
-        CatalogEntry(nsid: "mlx-community/gemma-4-e4b-it-4bit", label: "Gemma 4 E4B", minRamGB: 8, recommended: true, blurb: "Google's compact instruct model."),
+        // `mlx-community/gemma-4-e4b-it-4bit` was removed (issue #141): it's a
+        // merged/multimodal "E4B" checkpoint (weights nested under
+        // `language_model.*`) the text runtime can't load, so picking it always
+        // failed provisioning. Keep this catalog to standard MLX text models.
         CatalogEntry(nsid: "mlx-community/Qwen3.5-9B-MLX-4bit", label: "Qwen 3.5 9B", minRamGB: 16, recommended: true, blurb: "Strong mid-size reasoning."),
         CatalogEntry(nsid: "mlx-community/Qwen3.6-27B-4bit", label: "Qwen 3.6 27B", minRamGB: 24, recommended: true, blurb: "High-quality dense model."),
         CatalogEntry(nsid: "mlx-community/Qwen3.6-35B-A3B-4bit", label: "Qwen 3.6 35B A3B", minRamGB: 32, recommended: true, blurb: "MoE — big quality at modest active cost."),
