@@ -104,15 +104,14 @@ pub const RATES: &[ModelRate] = &[
         description: "Qwen3.5 4B — balanced default for 8GB+ Macs",
         recommended: true,
     },
-    ModelRate {
-        model_id: "mlx-community/gemma-4-e4b-it-4bit",
-        input_per_mtok: 1_000_000,
-        output_per_mtok: 1_000_000,
-        currency: "CC",
-        min_ram_gb: 8,
-        description: "Gemma 4 E4B — efficient multimodal-class; 8GB+",
-        recommended: true,
-    },
+    // NOTE: `mlx-community/gemma-4-e4b-it-4bit` was previously here. It is a
+    // merged/multimodal (Gemma "E4B") checkpoint whose weights are nested under
+    // `language_model.*`, which the text runtime can't map onto a plain text
+    // model — every machine that pinned it failed provisioning and fell back to
+    // the no-op `stub` engine (see issue #141). Removed from the catalog rather
+    // than demoted to legacy: legacy entries are "still servable", and this one
+    // is not servable at all. Do not re-add a multimodal/merged checkpoint to
+    // this rotation; only standard MLX text models belong here.
     ModelRate {
         model_id: "mlx-community/Qwen3.5-9B-MLX-4bit",
         input_per_mtok: 1_000_000,

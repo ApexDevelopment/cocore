@@ -43,11 +43,13 @@ export const RECOMMENDED_MODELS: readonly RecommendedModel[] = [
     minRamGb: 8,
     blurb: "Qwen3.5 4B — balanced default for 8GB+ Macs",
   },
-  {
-    id: "mlx-community/gemma-4-e4b-it-4bit",
-    minRamGb: 8,
-    blurb: "Gemma 4 E4B — efficient multimodal-class; 8GB+",
-  },
+  // NOTE: `mlx-community/gemma-4-e4b-it-4bit` was previously offered here but
+  // removed (issue #141). It is a merged/multimodal "E4B" checkpoint whose
+  // weights are nested under `language_model.*`, which the provider's text
+  // runtime can't load — picking it always failed provisioning and left the
+  // machine serving only the no-op `stub` engine. Keep this list to standard
+  // MLX text models the provider can actually serve. Mirror of the provider
+  // Rust catalog (provider/src/pricing.rs).
   {
     id: "mlx-community/Qwen3.5-9B-MLX-4bit",
     minRamGb: 16,
