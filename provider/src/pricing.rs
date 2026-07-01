@@ -34,6 +34,7 @@
 ///   * 27B 4-bit ≈ 14GB weights → wants 32GB+
 ///   * 70B 4-bit ≈ 36GB weights → wants 64GB+
 ///   * 122B 4-bit ≈ 65GB weights → wants 96GB+
+///   * 397B 4-bit ≈ 220GB weights → wants 256GB+
 pub struct ModelRate {
     pub model_id: &'static str,
     pub input_per_mtok: u64,
@@ -140,12 +141,32 @@ pub const RATES: &[ModelRate] = &[
         tool_call_parser: Some("hermes"),
     },
     ModelRate {
+        model_id: "mlx-community/Qwen3.5-27B-4bit",
+        input_per_mtok: 1_000_000,
+        output_per_mtok: 1_000_000,
+        currency: "CC",
+        min_ram_gb: 24,
+        description: "Qwen3.5 27B — high-quality dense model; 24GB+",
+        recommended: true,
+        tool_call_parser: Some("hermes"),
+    },
+    ModelRate {
         model_id: "mlx-community/Qwen3.6-27B-4bit",
         input_per_mtok: 1_000_000,
         output_per_mtok: 1_000_000,
         currency: "CC",
         min_ram_gb: 24,
         description: "Qwen3.6 27B — frontier-class dense; 24GB+",
+        recommended: true,
+        tool_call_parser: Some("hermes"),
+    },
+    ModelRate {
+        model_id: "mlx-community/Qwen3.5-35B-A3B-4bit",
+        input_per_mtok: 1_000_000,
+        output_per_mtok: 1_000_000,
+        currency: "CC",
+        min_ram_gb: 32,
+        description: "Qwen3.5 35B-A3B MoE — fast for its size; 32GB+",
         recommended: true,
         tool_call_parser: Some("hermes"),
     },
@@ -176,6 +197,16 @@ pub const RATES: &[ModelRate] = &[
         currency: "CC",
         min_ram_gb: 96,
         description: "Qwen3.5 122B-A10B MoE — flagship; 96GB+ Mac Studio/Ultra",
+        recommended: true,
+        tool_call_parser: Some("hermes"),
+    },
+    ModelRate {
+        model_id: "mlx-community/Qwen3.5-397B-A17B-4bit",
+        input_per_mtok: 1_000_000,
+        output_per_mtok: 1_000_000,
+        currency: "CC",
+        min_ram_gb: 256,
+        description: "Qwen3.5 397B-A17B MoE — flagship; 256GB+ Ultra",
         recommended: true,
         tool_call_parser: Some("hermes"),
     },
@@ -679,8 +710,21 @@ mod tests {
     #[test]
     fn recommended_set_is_the_rotation() {
         let rec: Vec<&str> = recommended_models().iter().map(|m| m.model_id).collect();
-        assert!(rec.contains(&"mlx-community/Qwen3.5-4B-MLX-4bit"));
-        assert!(rec.contains(&"mlx-community/Qwen3.5-122B-A10B-4bit"));
+        for model_id in [
+            "mlx-community/Qwen3.5-0.8B-MLX-4bit",
+            "mlx-community/Qwen3.5-2B-MLX-4bit",
+            "mlx-community/Qwen3.5-4B-MLX-4bit",
+            "mlx-community/Qwen3.5-9B-MLX-4bit",
+            "mlx-community/Qwen3.5-27B-4bit",
+            "mlx-community/Qwen3.5-35B-A3B-4bit",
+            "mlx-community/Qwen3.5-122B-A10B-4bit",
+            "mlx-community/Qwen3.5-397B-A17B-4bit",
+        ] {
+            assert!(
+                rec.contains(&model_id),
+                "missing recommended model {model_id}"
+            );
+        }
         // legacy + stub are NOT recommended
         assert!(!rec.contains(&"mlx-community/Qwen2.5-7B-Instruct-4bit"));
         assert!(!rec.contains(&"stub"));

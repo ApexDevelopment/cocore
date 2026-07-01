@@ -486,10 +486,13 @@ final class ModelManager: ObservableObject {
         // `language_model.*`) the text runtime can't load, so picking it always
         // failed provisioning. Keep this catalog to standard MLX text models.
         CatalogEntry(nsid: "mlx-community/Qwen3.5-9B-MLX-4bit", label: "Qwen 3.5 9B", minRamGB: 16, recommended: true, blurb: "Strong mid-size reasoning."),
+        CatalogEntry(nsid: "mlx-community/Qwen3.5-27B-4bit", label: "Qwen 3.5 27B", minRamGB: 24, recommended: true, blurb: "High-quality dense model."),
         CatalogEntry(nsid: "mlx-community/Qwen3.6-27B-4bit", label: "Qwen 3.6 27B", minRamGB: 24, recommended: true, blurb: "High-quality dense model."),
+        CatalogEntry(nsid: "mlx-community/Qwen3.5-35B-A3B-4bit", label: "Qwen 3.5 35B A3B", minRamGB: 32, recommended: true, blurb: "MoE — big quality at modest active cost."),
         CatalogEntry(nsid: "mlx-community/Qwen3.6-35B-A3B-4bit", label: "Qwen 3.6 35B A3B", minRamGB: 32, recommended: true, blurb: "MoE — big quality at modest active cost."),
         CatalogEntry(nsid: "mlx-community/Llama-4-Scout-17B-16E-Instruct-4bit", label: "Llama 4 Scout 17B", minRamGB: 64, recommended: true, blurb: "Meta's mixture-of-experts flagship."),
         CatalogEntry(nsid: "mlx-community/Qwen3.5-122B-A10B-4bit", label: "Qwen 3.5 122B A10B", minRamGB: 96, recommended: true, blurb: "Frontier-class MoE for big rigs."),
+        CatalogEntry(nsid: "mlx-community/Qwen3.5-397B-A17B-4bit", label: "Qwen 3.5 397B A17B", minRamGB: 256, recommended: true, blurb: "Flagship MoE for high-memory Ultras."),
         // Legacy choices — still serviceable, no longer the front-runners.
         CatalogEntry(nsid: "mlx-community/Qwen2.5-0.5B-Instruct-4bit", label: "Qwen 2.5 0.5B", minRamGB: 4, recommended: false, blurb: "Legacy tiny model."),
         CatalogEntry(nsid: "mlx-community/Qwen2.5-3B-Instruct-4bit", label: "Qwen 2.5 3B", minRamGB: 8, recommended: false, blurb: "Legacy small model."),
