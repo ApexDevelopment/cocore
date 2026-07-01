@@ -56,9 +56,19 @@ export const RECOMMENDED_MODELS: readonly RecommendedModel[] = [
     blurb: "Qwen3.5 9B — strong general-purpose; 16GB+ recommended",
   },
   {
+    id: "mlx-community/Qwen3.5-27B-4bit",
+    minRamGb: 24,
+    blurb: "Qwen3.5 27B — high-quality dense model; 24GB+",
+  },
+  {
     id: "mlx-community/Qwen3.6-27B-4bit",
     minRamGb: 24,
     blurb: "Qwen3.6 27B — frontier-class dense; 24GB+",
+  },
+  {
+    id: "mlx-community/Qwen3.5-35B-A3B-4bit",
+    minRamGb: 32,
+    blurb: "Qwen3.5 35B-A3B MoE — fast for its size; 32GB+",
   },
   {
     id: "mlx-community/Qwen3.6-35B-A3B-4bit",
@@ -74,6 +84,11 @@ export const RECOMMENDED_MODELS: readonly RecommendedModel[] = [
     id: "mlx-community/Qwen3.5-122B-A10B-4bit",
     minRamGb: 96,
     blurb: "Qwen3.5 122B-A10B MoE — flagship; 96GB+ Mac Studio/Ultra",
+  },
+  {
+    id: "mlx-community/Qwen3.5-397B-A17B-4bit",
+    minRamGb: 256,
+    blurb: "Qwen3.5 397B-A17B MoE — flagship; 256GB+ Ultra",
   },
 ];
 
