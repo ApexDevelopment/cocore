@@ -205,6 +205,14 @@ async fn main() -> Result<()> {
     // field failure names itself instead of vanishing with the unified log.
     cocore_provider::diagnostics::install_panic_hook();
 
+    // Rust ignores SIGPIPE, so `println!` to a closed pipe (`cocore pause |
+    // head -1`) PANICS on EPIPE — a field bundle captured exactly that crash
+    // in `cmd_set_active` (ticket br_4bc92a25). Restore the Unix default so a
+    // closed pipe ends the CLI quietly, like every other command-line tool.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     let cli = Cli::parse();
     init_tracing(&cli.log);
 
@@ -2808,6 +2816,38 @@ fn build_engines(
             models: all_unserved,
             at: chrono::Utc::now(),
         }
+    } else if !failed.is_empty() && is_python_env_broken(last_err.as_deref()) {
+        // The venv exists but its packages don't import — the subprocess dies
+        // at import time, before touching the model. The generic "not in MLX
+        // format" message below would be actively wrong (the model was never
+        // even looked at) and sends the operator down a model-picking rabbit
+        // hole when the fix is to re-provision the Python environment. The
+        // installer's bootstrap re-runs idempotently and now pins known-good
+        // dependency versions, so re-running it repairs this in place.
+        tracing::warn!(
+            models = ?failed,
+            last_error = %last_err.as_deref().unwrap_or("(none captured)"),
+            "python environment is broken (engine dies at import); serving stub only"
+        );
+        EngineFault {
+            code: "python-env-broken".to_string(),
+            message: format!(
+                "The Python inference environment at {} is broken: the engine \
+                 process crashes while importing its libraries, before your \
+                 model(s) [{}] are even read — the models themselves are fine. \
+                 This usually means a dependency version mismatch inside the \
+                 environment. The machine is online but only serving the no-op \
+                 `stub` engine, so it won't be matched to real inference jobs. \
+                 Fix: re-run the installer to repair the environment in place — \
+                 `curl -fsSL https://cocore.dev/agent | sh` — then start serving \
+                 again. If it keeps failing, DM @cocore.dev on Bluesky with your \
+                 machine label and we'll help.",
+                venv_python.display(),
+                failed.join(", "),
+            ),
+            models: all_unserved,
+            at: chrono::Utc::now(),
+        }
     } else if !failed.is_empty() && is_socket_path_too_long(last_err.as_deref()) {
         // The engine couldn't open its local Unix-domain socket because the
         // assembled path overflowed the OS `sun_path` limit (a long $HOME +
@@ -2999,6 +3039,26 @@ const ENGINE_START_MAX_ATTEMPTS: u32 = 3;
 /// download to make progress.
 const ENGINE_START_BACKOFF: std::time::Duration = std::time::Duration::from_secs(8);
 
+/// Whether an engine-start error is the "the Python environment itself is
+/// broken" failure — the wrapper (`cocore_inference_server.py`) dying at
+/// IMPORT time, before any model or socket work. This is deterministic: no
+/// amount of retrying or model-picking helps, only re-provisioning the venv.
+/// Seen in the field when an unconstrained dependency resolve pulled
+/// transformers 5.13.0, whose stricter `AutoTokenizer.register` broke
+/// mlx-lm's import (`AttributeError: 'str' object has no attribute
+/// '__module__'`). Detected from the captured startup stderr, which is
+/// content-safe (library tracebacks only — no request has been served yet).
+fn is_python_env_broken(last_err: Option<&str>) -> bool {
+    let Some(e) = last_err else { return false };
+    let import_traceback = e.contains("Traceback")
+        && (e.contains("import vllm_mlx") || e.contains("ModuleNotFoundError"));
+    // The specific transformers-5.13 / mlx-lm incompatibility, matched
+    // exactly so it classifies even if a future wrapper reorders imports.
+    let transformers_register_break =
+        e.contains("'str' object has no attribute '__module__'");
+    import_traceback || transformers_register_break
+}
+
 /// Whether an engine-start error is the "this VLM's image config is broken"
 /// failure — the multimodal loader (mlx_vlm) choking on an incomplete
 /// `vision_config`. Detected from the captured subprocess stderr, which the
@@ -3082,6 +3142,16 @@ fn start_engine_with_recovery(
                     Ok(()) => return Ok(engine),
                     Err(e) => {
                         let err = format!("{e:#}");
+                        // An import-time crash of the wrapper is deterministic —
+                        // the venv's packages are broken, and the same spawn will
+                        // fail identically every time. Retrying (and then
+                        // retrying the NEXT model) just burns minutes before the
+                        // operator sees the fault; bail to classification now.
+                        if is_python_env_broken(Some(&err)) {
+                            tracing::warn!(model = %model, attempt, error = %err,
+                                "inference subprocess died at import (broken python env); not retrying");
+                            return Err(EngineStartFailure::Failed(err));
+                        }
                         tracing::warn!(model = %model, attempt, error = %err, "inference subprocess failed to start; will retry");
                         last_err = Some(err);
                     }
@@ -3284,6 +3354,39 @@ mod vision_fault_tests {
             "ModuleNotFoundError: vllm_mlx"
         )));
         assert!(!is_vision_config_failure(None));
+    }
+
+    use super::is_python_env_broken;
+
+    #[test]
+    fn detects_transformers_513_import_break() {
+        // The exact field signature from ticket br_23e56917 (transformers
+        // 5.13.0 vs mlx-lm's string-key AutoTokenizer.register).
+        let err = "inference subprocess for mlx-community/Qwen3.5-122B-A10B-4bit exited during startup with exit status: 1\n\
+                   [stderr] Traceback (most recent call last):\n\
+                   [stderr]   File \"/Users/u/.cocore/cocore_inference_server.py\", line 97, in <module>\n\
+                   [stderr]     import vllm_mlx.server as srv  # noqa: E402\n\
+                   [stderr] AttributeError: 'str' object has no attribute '__module__'. Did you mean: '__mod__'?";
+        assert!(is_python_env_broken(Some(err)));
+    }
+
+    #[test]
+    fn detects_missing_module_at_import() {
+        let err = "exited during startup with exit status: 1\n\
+                   [stderr] Traceback (most recent call last):\n\
+                   [stderr] ModuleNotFoundError: No module named 'vllm_mlx'";
+        assert!(is_python_env_broken(Some(err)));
+    }
+
+    #[test]
+    fn env_broken_ignores_model_load_failures_and_none() {
+        // A traceback from MODEL loading (post-import) must not classify as a
+        // broken env — the imports succeeded, so the env is fine.
+        assert!(!is_python_env_broken(Some(
+            "Traceback (most recent call last):\n  File \"utils.py\" ...\nOSError: out of memory loading weights"
+        )));
+        assert!(!is_python_env_broken(Some("never became ready")));
+        assert!(!is_python_env_broken(None));
     }
 
     use super::{is_multimodal_weight_map_failure, is_socket_path_too_long};

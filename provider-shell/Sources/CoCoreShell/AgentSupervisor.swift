@@ -151,7 +151,14 @@ final class AgentSupervisor {
         let p = Process()
         p.executableURL = bin
         p.arguments = ["agent", "diag"]
-        p.environment = ["HOME": NSHomeDirectory()]
+        // Inherit the full environment and only pin HOME. Replacing the env
+        // wholesale (the old `["HOME": ...]`) dropped PATH, so the diag's
+        // system-profile probes (`sysctl`, `ioreg` — both under /usr/sbin,
+        // which execvp's fallback path lacks) all failed and every uploaded
+        // bundle reported chip "unknown" / 0 GB RAM (ticket br_23e56917).
+        var env = ProcessInfo.processInfo.environment
+        env["HOME"] = NSHomeDirectory()
+        p.environment = env
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = FileHandle.nullDevice
@@ -179,8 +186,8 @@ final class AgentSupervisor {
     func sendBugReport(note: String? = nil) async -> String? {
         guard let bundle = Self.generateBugReportBundle() else { return nil }
         // Target session.apiBase — the service that paired us holds our bearer
-        // key. (Follow-up: the AppView should serve /api/agent/bug-report too,
-        // so device-pair'd agents can upload; today only the console does.)
+        // key (both the console and the AppView serve /api/agent/bug-report;
+        // each resolves the keys it minted).
         guard let session = SessionStore.load(),
               let apiKey = session.apiKey,
               let base = session.apiBase,
