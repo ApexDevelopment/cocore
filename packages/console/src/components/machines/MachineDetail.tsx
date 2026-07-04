@@ -477,9 +477,9 @@ export function MachineDetail({ rkey }: { rkey: string }) {
       {!m.faultReason && m.state === "provisioning" ? (
         <Alert variant="info" title="Preparing — downloading models">
           <SmallBody>
-            This machine is downloading its model weights (often several GB) and will start
-            serving automatically when the download finishes. It appears under its models on the
-            models page only once it's serving — typically a few minutes on a fast connection.
+            This machine is downloading its model weights (often several GB) and will start serving
+            automatically when the download finishes. It appears under its models on the models page
+            only once it's serving — typically a few minutes on a fast connection.
           </SmallBody>
         </Alert>
       ) : null}
