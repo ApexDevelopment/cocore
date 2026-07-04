@@ -418,6 +418,13 @@ pub fn any_explicit_mda_env() -> bool {
 /// attestation refresh). Always fail-soft.
 pub fn acquire_auto(console_base: &str, api_key: &str, public_key_b64: &str) -> Vec<Vec<u8>> {
     if !mdm_enrolled() {
+        // Log the skip: this is the ONLY signal in a diagnostic bundle that
+        // explains a machine stuck self-attested while its owner believes
+        // Secure Mode is applying. A silent return here cost a full triage
+        // round-trip on ticket br_23e56917.
+        tracing::info!(
+            "MDA auto: this Mac is not MDM-enrolled (per `profiles status`); staying self-attested"
+        );
         return Vec::new();
     }
     let Some(serial) = device_serial() else {
@@ -491,11 +498,16 @@ fn chain_binds_key(chain: &[Vec<u8>], public_key_b64: &str) -> bool {
 /// Is this Mac currently MDM-enrolled? Reads `profiles status -type enrollment`
 /// ("MDM enrollment: Yes"). Any failure / non-macOS → false (skip option-B).
 pub fn mdm_enrolled() -> bool {
-    run_capture("profiles", &["status", "-type", "enrollment"])
+    // Case-insensitive on purpose: `profiles status` phrasing has shifted
+    // capitalization across macOS releases, and a silent parse miss here reads
+    // as "not enrolled" and quietly disables the whole MDA flow. Must stay in
+    // agreement with the tray's probe (SecureModeWizard.swift
+    // `EnrollmentProbe.isEnrolled`), which drives the Secure Mode UI copy.
+    run_capture("/usr/bin/profiles", &["status", "-type", "enrollment"])
         .map(|out| {
             out.lines().any(|l| {
-                let l = l.trim();
-                l.starts_with("MDM enrollment:") && l.contains("Yes")
+                let l = l.trim().to_lowercase();
+                l.starts_with("mdm enrollment:") && l.contains("yes")
             })
         })
         .unwrap_or(false)
@@ -524,7 +536,9 @@ pub fn device_hardware_uuid() -> Option<String> {
 
 /// Pull a string property off the IOPlatformExpertDevice node via `ioreg`.
 fn ioreg_value(key: &str) -> Option<String> {
-    let out = run_capture("ioreg", &["-rd1", "-c", "IOPlatformExpertDevice"])?;
+    // /usr/sbin isn't on execvp's fallback path — absolute path so this probe
+    // works however the agent was spawned (see system_profile.rs).
+    let out = run_capture("/usr/sbin/ioreg", &["-rd1", "-c", "IOPlatformExpertDevice"])?;
     for line in out.lines() {
         if line.contains(&format!("\"{key}\"")) {
             // line looks like:  "IOPlatformUUID" = "376AF848-..."
