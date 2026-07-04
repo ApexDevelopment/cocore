@@ -129,7 +129,7 @@ interface ProviderAgg {
  *  well-formed versions ("0.9.40" > "0.9.9"), lexicographic fallback for
  *  anything else. Good enough for display + filter ordering; no semver
  *  pre-release semantics needed for agent versions. */
-export function sortVersionsDesc(versions: string[]): string[] {
+function sortVersionsDesc(versions: string[]): string[] {
   const parts = (v: string) => v.split(".").map((p) => Number.parseInt(p, 10));
   return [...versions].sort((a, b) => {
     const pa = parts(a);
