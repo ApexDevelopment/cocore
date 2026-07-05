@@ -90,7 +90,7 @@ export async function verifyBrokerageCountersignature(
   const cs = receipt.brokerageCountersignature;
   if (!cs) return { ok: false, reason: "no brokerage countersignature on the receipt" };
 
-  const trusted = new Set<string>([...opts.trustedAuthorities]);
+  const trusted = new Set<string>(opts.trustedAuthorities);
   if (!trusted.has(cs.authority)) {
     return {
       ok: false,
@@ -234,11 +234,13 @@ export function didDocumentUrl(did: string): string | null {
  *  {@link VerifyBrokerageOptions.resolveAuthorityKeyB64}. `fetchImpl` defaults to
  *  the global `fetch`; tests inject a stub. Failures resolve null (never throw)
  *  so a bad/unreachable authority fails the countersignature closed. */
-export function makeBrokerageKeyResolver(opts: {
-  fetchImpl?: typeof fetch;
-  cacheTtlMs?: number;
-  now?: () => number;
-} = {}): (did: string) => Promise<string | null> {
+export function makeBrokerageKeyResolver(
+  opts: {
+    fetchImpl?: typeof fetch;
+    cacheTtlMs?: number;
+    now?: () => number;
+  } = {},
+): (did: string) => Promise<string | null> {
   const doFetch = opts.fetchImpl ?? fetch;
   const ttl = opts.cacheTtlMs ?? 5 * 60_000;
   const now = opts.now ?? (() => Date.now());
@@ -263,7 +265,10 @@ export function makeBrokerageKeyResolver(opts: {
 }
 
 function b64urlToBytes(b64url: string): Uint8Array {
-  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(b64url.length / 4) * 4, "=");
+  const b64 = b64url
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(b64url.length / 4) * 4, "=");
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);

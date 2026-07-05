@@ -165,7 +165,10 @@ function signAssertion(
   message: Uint8Array,
   appId = APP_ID,
 ): string {
-  const authData = Buffer.concat([sha256(new TextEncoder().encode(appId)), Buffer.from([0x00, 0, 0, 0, 1])]);
+  const authData = Buffer.concat([
+    sha256(new TextEncoder().encode(appId)),
+    Buffer.from([0x00, 0, 0, 0, 1]),
+  ]);
   const signed = Buffer.concat([authData, sha256(message)]);
   const signature = nodeSign("SHA256", signed, privateKey);
   return encodeAssertion(signature, authData).toString("base64");

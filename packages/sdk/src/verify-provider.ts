@@ -237,7 +237,12 @@ export async function verifyProviderForSeal(
   const verifyIdentitySig = async (sigB64: string, message: Uint8Array): Promise<boolean> => {
     try {
       if (sigScheme === "appattest-assertion") {
-        return await verifyAppAttestAssertion(attestation.publicKey, sigB64, message, APP_ATTEST_APP_ID);
+        return await verifyAppAttestAssertion(
+          attestation.publicKey,
+          sigB64,
+          message,
+          APP_ATTEST_APP_ID,
+        );
       }
       return await verifyP256(attestation.publicKey, sigB64, message);
     } catch (e) {
@@ -259,10 +264,11 @@ export async function verifyProviderForSeal(
       // canonical record body (sans selfSignature/$type) as clientDataHash.
       const sig = attestation.selfSignature;
       if (sig) {
-        const { selfSignature: _s, $type: _t, ...body } = attestation as unknown as Record<
-          string,
-          unknown
-        >;
+        const {
+          selfSignature: _s,
+          $type: _t,
+          ...body
+        } = attestation as unknown as Record<string, unknown>;
         selfOk = await verifyIdentitySig(sig, canonicalBytes(body));
       }
     } else {

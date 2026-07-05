@@ -583,7 +583,10 @@ test("sigScheme 'appattest-assertion': selfSignature verifies as an assertion, t
     return Buffer.concat([Buffer.from([0x60 | b.length]), b]);
   };
   const assertionOver = (msg: Uint8Array): string => {
-    const authData = Buffer.concat([sha(new TextEncoder().encode(APP_ID)), Buffer.from([0, 0, 0, 0, 1])]);
+    const authData = Buffer.concat([
+      sha(new TextEncoder().encode(APP_ID)),
+      Buffer.from([0, 0, 0, 0, 1]),
+    ]);
     const signature = nodeSign("SHA256", Buffer.concat([authData, sha(msg)]), privateKey);
     return Buffer.concat([
       Buffer.from([0xa2]),

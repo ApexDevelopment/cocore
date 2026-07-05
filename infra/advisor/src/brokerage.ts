@@ -20,7 +20,7 @@ import { brokerageWitnessMessage } from "@cocore/sdk/brokerage";
 /** A block the advisor attaches to `inference_request` and the provider copies
  *  onto the receipt as `brokerageCountersignature`. Field names are the wire
  *  (snake_case) form; the receipt uses the lexicon camelCase names. */
-export interface BrokerageCountersignature {
+interface BrokerageCountersignature {
   authority: string;
   machine_id: string;
   nonce: string;
@@ -45,7 +45,7 @@ export interface BrokerageAuthority {
 }
 
 /** A fresh 16-byte lowercase-hex witness nonce. */
-export function freshWitnessNonce(): string {
+function freshWitnessNonce(): string {
   return randomBytes(16).toString("hex");
 }
 
@@ -58,10 +58,7 @@ export function brokerageDidDocument(did: string, publicKeyB64: string): unknown
   const raw = Buffer.from(publicKeyB64, "base64");
   const vmId = `${did}#brokerage`;
   return {
-    "@context": [
-      "https://www.w3.org/ns/did/v1",
-      "https://w3id.org/security/suites/jws-2020/v1",
-    ],
+    "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/suites/jws-2020/v1"],
     id: did,
     verificationMethod: [
       {

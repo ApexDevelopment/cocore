@@ -263,7 +263,10 @@ test("verifyReceiptSignature: verifies an assertion when sigScheme='appattest-as
   const tstr = (s: string): Buffer =>
     Buffer.concat([Buffer.from([0x60 | Buffer.from(s).length]), Buffer.from(s)]);
   const assertionOver = (msg: Uint8Array): string => {
-    const authData = Buffer.concat([sha(new TextEncoder().encode(APP_ID)), Buffer.from([0, 0, 0, 0, 1])]);
+    const authData = Buffer.concat([
+      sha(new TextEncoder().encode(APP_ID)),
+      Buffer.from([0, 0, 0, 0, 1]),
+    ]);
     const signature = nodeSign("SHA256", Buffer.concat([authData, sha(msg)]), privateKey);
     return Buffer.concat([
       Buffer.from([0xa2]),

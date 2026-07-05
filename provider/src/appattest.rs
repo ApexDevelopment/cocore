@@ -870,7 +870,10 @@ mod tests {
         let der = sig.to_der().as_bytes().to_vec();
         let val = Value::Map(vec![
             (Value::Text("signature".into()), Value::Bytes(der)),
-            (Value::Text("authenticatorData".into()), Value::Bytes(auth_data)),
+            (
+                Value::Text("authenticatorData".into()),
+                Value::Bytes(auth_data),
+            ),
         ]);
         let mut buf = Vec::new();
         ciborium::into_writer(&val, &mut buf).unwrap();
@@ -889,7 +892,12 @@ mod tests {
         let (_, other) = assertion_identity();
         assert!(!verify_assertion(&other, &a, msg, TEST_APP_ID));
         // Wrong appId (rpIdHash mismatch).
-        assert!(!verify_assertion(&pub_raw, &a, msg, "9Z9Z9Z9Z9Z.dev.cocore.provider"));
+        assert!(!verify_assertion(
+            &pub_raw,
+            &a,
+            msg,
+            "9Z9Z9Z9Z9Z.dev.cocore.provider"
+        ));
     }
 
     #[test]

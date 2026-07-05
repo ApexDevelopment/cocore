@@ -26,8 +26,14 @@ function makeAuthority(): {
 }
 
 test("didDocumentUrl: did:web (host + path) and did:plc, unsupported → null", () => {
-  assert.equal(didDocumentUrl("did:web:advisor.cocore.dev"), "https://advisor.cocore.dev/.well-known/did.json");
-  assert.equal(didDocumentUrl("did:web:example.com:brokerage:a"), "https://example.com/brokerage/a/did.json");
+  assert.equal(
+    didDocumentUrl("did:web:advisor.cocore.dev"),
+    "https://advisor.cocore.dev/.well-known/did.json",
+  );
+  assert.equal(
+    didDocumentUrl("did:web:example.com:brokerage:a"),
+    "https://example.com/brokerage/a/did.json",
+  );
   assert.equal(didDocumentUrl("did:plc:abc123"), "https://plc.directory/did%3Aplc%3Aabc123");
   assert.equal(didDocumentUrl("did:key:zabc"), null);
 });
@@ -43,7 +49,9 @@ test("brokerageKeyFromDidDoc: extracts the P-256 JWK, ignores non-P-256", () => 
   assert.ok(key && key.length > 0);
   // A doc with no EC P-256 key → null.
   assert.equal(
-    brokerageKeyFromDidDoc({ verificationMethod: [{ publicKeyJwk: { kty: "OKP", crv: "Ed25519", x: "z" } }] }),
+    brokerageKeyFromDidDoc({
+      verificationMethod: [{ publicKeyJwk: { kty: "OKP", crv: "Ed25519", x: "z" } }],
+    }),
     null,
   );
   assert.equal(brokerageKeyFromDidDoc({}), null);
@@ -104,7 +112,10 @@ test("end-to-end: resolve the authority key from a DID doc and verify the counte
 });
 
 test("resolver returns null (fail-closed) when the DID doc is unreachable", async () => {
-  const stubFetch = (async () => ({ ok: false, json: async () => ({}) })) as unknown as typeof fetch;
+  const stubFetch = (async () => ({
+    ok: false,
+    json: async () => ({}),
+  })) as unknown as typeof fetch;
   const resolve = makeBrokerageKeyResolver({ fetchImpl: stubFetch });
   assert.equal(await resolve(DID), null);
 });
